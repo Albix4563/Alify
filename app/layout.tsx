@@ -30,7 +30,7 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
         <BackgroundEffects />
         <AuthProvider>
           {children}
-          <Toaster theme="dark" position="bottom-right" />
+          <Toaster theme="dark" position="top-center" toastOptions={{ className: 'bg-black/80 backdrop-blur-md text-white border-white/10 shadow-2xl' }} />
         </AuthProvider>
       </body>
     </html>

@@ -246,10 +246,10 @@ export function Player() {
         <AnimatePresence>
           {isMobileExpanded && (
             <motion.div 
-              initial={{ y: "100%" }}
-            animate={{ y: 0 }}
-            exit={{ y: "100%" }}
-            transition={{ type: "spring", bounce: 0, duration: 0.4 }}
+              initial={{ y: "100%", opacity: 0, filter: 'blur(20px)' }}
+            animate={{ y: 0, opacity: 1, filter: 'blur(0px)' }}
+            exit={{ y: "100%", opacity: 0, filter: 'blur(20px)' }}
+            transition={{ type: "spring", stiffness: 350, damping: 28, mass: 1 }}
             drag="y"
             dragConstraints={{ top: 0, bottom: 0 }}
             dragElastic={0.2}
@@ -260,12 +260,34 @@ export function Player() {
             }}
             className="fixed inset-0 z-[100] bg-gradient-to-t from-black/60 to-transparent flex flex-col px-4 pt-10 pb-4 touch-none"
           >
-              <div className="flex items-center justify-between z-[102]">
+              <div className="flex items-center justify-between z-[102] relative">
                   <button onClick={() => setIsMobileExpanded(false)} className="p-2 -ml-2 text-white hover:bg-white/10 rounded-full transition-colors drop-shadow-lg">
                       <ChevronDown className="w-6 h-6 z-[102]" />
                   </button>
                   <span className="text-[10px] font-bold uppercase tracking-widest text-white drop-shadow-lg z-[102]">In riproduzione</span>
                   <div className="w-6" />
+              </div>
+
+              {/* Gesture overlay for Double Tap to Seek */}
+              <div className="absolute inset-x-0 top-20 bottom-[30vh] z-[101] flex">
+                  <div className="flex-1 flex items-center justify-center opacity-0 hover:opacity-10 active:opacity-20 transition-opacity bg-white" 
+                       onDoubleClick={() => {
+                           if(playerRef.current) {
+                               const newTime = Math.max(0, currentTime - 10);
+                               playerRef.current.internalPlayer.seekTo(newTime);
+                               setCurrentTime(newTime);
+                           }
+                       }} 
+                  />
+                  <div className="flex-1 flex items-center justify-center opacity-0 hover:opacity-10 active:opacity-20 transition-opacity bg-white" 
+                       onDoubleClick={() => {
+                           if(playerRef.current) {
+                               const newTime = Math.min(duration, currentTime + 10);
+                               playerRef.current.internalPlayer.seekTo(newTime);
+                               setCurrentTime(newTime);
+                           }
+                       }} 
+                  />
               </div>
 
               <div className="flex flex-col justify-end w-full mt-auto mb-0 z-[102] pt-10">
@@ -336,8 +358,19 @@ export function Player() {
          animate={{
             y: isMobileExpanded ? 0 : (isMobile ? (scrollingDown ? 0 : -76) : 0),
             scale: isMobile && scrollingDown ? 1.02 : 1,
+            x: 0 // reset x
          }}
-         transition={{ type: "spring", stiffness: 300, damping: 30 }}
+         drag={isMobile && !isMobileExpanded ? "x" : false}
+         dragConstraints={{ left: 0, right: 0 }}
+         dragElastic={0.7}
+         onDragEnd={(e, { offset, velocity }) => {
+            if (isMobile && !isMobileExpanded) {
+               if (offset.x < -80 || velocity.x < -500) {
+                   handleNext();
+               }
+            }
+         }}
+         transition={{ type: "spring", stiffness: 400, damping: 25, mass: 1 }}
          className={`fixed z-50 left-3 right-3 bottom-6 md:left-1/2 md:right-auto md:-translate-x-1/2 md:w-[760px] bg-black/60 backdrop-blur-3xl border border-white/20 rounded-[28px] shadow-[0_8px_30px_rgb(0,0,0,0.6)] flex flex-col transition-opacity duration-300 ${isMobileExpanded ? 'opacity-0 pointer-events-none' : 'opacity-100 pointer-events-auto'}`}
          onClick={(e) => {
              if (window.innerWidth < 768 && (e.target as HTMLElement).closest('.player-footer-clickable')) {

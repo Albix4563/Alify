@@ -57,10 +57,10 @@ export function BottomNav({ currentView, setCurrentView }: any) {
       <AnimatePresence>
         {!hidden && (
           <motion.div
-            initial={{ opacity: 0, y: 50 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 50 }}
-            transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+            initial={{ opacity: 0, y: 100, scale: 0.9, filter: 'blur(10px)' }}
+            animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
+            exit={{ opacity: 0, y: 100, scale: 0.9, filter: 'blur(10px)' }}
+            transition={{ type: 'spring', stiffness: 400, damping: 25, mass: 1 }}
             className={`fixed ${bottomOffset} left-4 right-4 z-40 md:hidden flex justify-center`}
           >
             <div className="w-full max-w-[400px] bg-black/60 backdrop-blur-3xl border border-white/20 rounded-[24px] p-2 flex items-center justify-around shadow-[0_8px_30px_rgb(0,0,0,0.6)] relative">
@@ -95,7 +95,7 @@ export function BottomNav({ currentView, setCurrentView }: any) {
               <button
                 onClick={() => setShowMenu(!showMenu)}
                 className={`flex flex-col items-center justify-center w-14 h-12 rounded-2xl relative transition-all ${
-                  showMenu ? 'text-white bg-white/10' : 'text-blue-200/60 hover:text-white'
+                  showMenu || currentView === 'profile' ? 'text-white bg-white/10' : 'text-blue-200/60 hover:text-white'
                 }`}
               >
                 <User className="w-5 h-5 relative z-10 mb-0.5" />
@@ -111,6 +111,9 @@ export function BottomNav({ currentView, setCurrentView }: any) {
                   exit={{ opacity: 0, scale: 0.9, y: 10 }}
                   className="absolute bottom-full right-0 mb-4 bg-black/80 backdrop-blur-xl border border-white/10 rounded-2xl p-4 shadow-xl w-48 origin-bottom-right"
                 >
+                   <button onClick={() => { setCurrentView('profile'); setShowMenu(false); }} className="flex items-center gap-3 text-sm font-medium text-white hover:text-blue-300 w-full p-2 bg-white/5 rounded-xl transition-colors mb-2">
+                     <User className="w-4 h-4" /> Profilo
+                   </button>
                    <button onClick={handleLogout} className="flex items-center gap-3 text-sm font-medium text-red-400 hover:text-red-300 w-full p-2 bg-white/5 rounded-xl transition-colors">
                      <LogOut className="w-4 h-4" /> Disconnetti
                    </button>
