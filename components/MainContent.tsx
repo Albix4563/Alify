@@ -12,7 +12,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 
-export function MainContent({ currentView, currentPlaylist, setCurrentView, createPlaylistDialog, setCreatePlaylistDialog }: any) {
+export function MainContent({ currentView, currentPlaylist, setCurrentView, createPlaylistDialog, setCreatePlaylistDialog, setCurrentPlaylist }: any) {
     const { user } = useAuth();
     const { setCurrentTrack, setQueue } = usePlayerStore();
 

@@ -41,6 +41,7 @@ export default function Home() {
              setCurrentView={setCurrentView}
              createPlaylistDialog={createPlaylistDialog}
              setCreatePlaylistDialog={setCreatePlaylistDialog}
+             setCurrentPlaylist={setCurrentPlaylist}
           />
         </main>
       </div>
