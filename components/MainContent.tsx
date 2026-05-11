@@ -6,7 +6,7 @@ import { useAuth } from '@/lib/auth-context';
 import { db } from '@/lib/firebase';
 import { collection, query, where, doc, setDoc, deleteDoc, serverTimestamp, onSnapshot, addDoc } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '@/lib/firestore-error';
-import { Search, Play, Heart, Plus, Share2, MoreVertical, Loader2, ListMusic, Sparkles } from 'lucide-react';
+import { Search, Play, Heart, Plus, Share2, MoreVertical, Loader2, ListMusic, Sparkles, Library } from 'lucide-react';
 import { GoogleGenAI, Type } from '@google/genai';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -239,8 +239,8 @@ export function MainContent({ currentView, currentPlaylist, setCurrentView, crea
         }
     }
 
-    const TrackList = ({ tracks, contextPlaylistId, isHistory = false }: { tracks: any[], contextPlaylistId?: string, isHistory?: boolean }) => (
-        <div className="space-y-2 mt-6">
+    const TrackList = ({ tracks, contextPlaylistId, isHistory = false, compact = false }: { tracks: any[], contextPlaylistId?: string, isHistory?: boolean, compact?: boolean }) => (
+        <div className={`space-y-${compact ? '1' : '2'} mt-${compact ? '3' : '6'}`}>
             {tracks.map((t, idx) => {
                 const trk = {
                     videoId: t.videoId || t.id?.videoId, title: t.title || t.snippet?.title || '',
@@ -251,8 +251,8 @@ export function MainContent({ currentView, currentPlaylist, setCurrentView, crea
                 const isFav = favorites.some(f => f.videoId === trk.videoId);
 
                 return (
-                    <div key={trk.videoId} className="flex items-center p-3 bg-white/5 hover:bg-white/10 rounded-xl transition-all group cursor-pointer border border-transparent hover:border-white/10 backdrop-blur-sm shadow-sm hover:shadow-md">
-                        <div className="w-12 h-12 relative overflow-hidden rounded-md bg-black/40 shadow-xl border border-white/10"
+                    <div key={trk.videoId} className={`flex items-center ${compact ? 'p-1.5' : 'p-3'} bg-white/5 hover:bg-white/10 ${compact ? 'rounded-lg' : 'rounded-xl'} transition-all group cursor-pointer border border-transparent hover:border-white/10 backdrop-blur-sm shadow-[0_2px_4px_rgba(0,0,0,0.1)] hover:shadow-md`}>
+                        <div className={`${compact ? 'w-10 h-10' : 'w-12 h-12'} relative overflow-hidden rounded-md bg-black/40 shadow-xl border border-white/10`}
                              onClick={() => {
                                  setCurrentTrack(trk);
                                  setQueue(tracks.slice(idx + 1).map(x => ({
@@ -266,28 +266,28 @@ export function MainContent({ currentView, currentPlaylist, setCurrentView, crea
                                 <Play className="w-5 h-5 text-white drop-shadow-md" fill="white" />
                             </div>
                         </div>
-                        <div className="ml-4 flex-1 overflow-hidden" onClick={() => {
+                        <div className="ml-3 flex-1 overflow-hidden" onClick={() => {
                                  setCurrentTrack(trk);
                                  setQueue(tracks.slice(idx + 1).map(x => ({
                                       videoId: x.videoId || x.id?.videoId, title: x.title || x.snippet?.title,
                                       channelTitle: x.channelTitle || x.snippet?.channelTitle, thumbnailUrl: x.thumbnailUrl || x.snippet?.thumbnails?.high?.url
                                  })));
                              }}>
-                            <div className="truncate font-bold text-sm text-white mb-0.5 drop-shadow-sm">{trk.title}</div>
-                            <div className="truncate text-xs text-blue-200/60 drop-shadow-sm">{trk.channelTitle}</div>
+                            <div className={`truncate font-bold ${compact ? 'text-xs' : 'text-sm'} text-white mb-0.5 drop-shadow-sm`}>{trk.title}</div>
+                            <div className={`truncate ${compact ? 'text-[10px]' : 'text-xs'} text-blue-200/60 drop-shadow-sm`}>{trk.channelTitle}</div>
                         </div>
-                        <div className="flex items-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity pr-2">
+                        <div className="flex items-center space-x-1 md:space-x-2 opacity-0 group-hover:opacity-100 transition-opacity pr-2">
                             {isHistory ? (
-                                <button className="text-red-400/60 hover:text-red-400 p-2 transition-colors text-xs font-medium uppercase tracking-wider" onClick={(e) => { e.stopPropagation(); removeHistoryTrack(trk.videoId); }}>
+                                <button className="text-red-400/60 hover:text-red-400 p-1 md:p-2 transition-colors text-[10px] md:text-xs font-medium uppercase tracking-wider" onClick={(e) => { e.stopPropagation(); removeHistoryTrack(trk.videoId); }}>
                                     Rimuovi
                                 </button>
                             ) : null}
-                            <button className="text-blue-200/60 hover:text-white p-2 transition-colors" onClick={(e) => { e.stopPropagation(); toggleFavorite(trk); }}>
-                                <Heart className="w-5 h-5" fill={isFav ? "white" : "none"} color={isFav ? "white" : "currentColor"} />
+                            <button className="text-blue-200/60 hover:text-white p-1 md:p-2 transition-colors" onClick={(e) => { e.stopPropagation(); toggleFavorite(trk); }}>
+                                <Heart className={`${compact ? 'w-4 h-4' : 'w-5 h-5'}`} fill={isFav ? "white" : "none"} color={isFav ? "white" : "currentColor"} />
                             </button>
                             <DropdownMenu>
-                                <DropdownMenuTrigger className="text-blue-200/60 hover:text-white p-2 transition-colors" onClick={e => e.stopPropagation()}>
-                                    <Plus className="w-5 h-5" />
+                                <DropdownMenuTrigger className="text-blue-200/60 hover:text-white p-1 md:p-2 transition-colors" onClick={e => e.stopPropagation()}>
+                                    <Plus className={`${compact ? 'w-4 h-4' : 'w-5 h-5'}`} />
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end" className="w-48 bg-black/80 backdrop-blur-xl border-white/20 text-white shadow-xl">
                                     <div className="px-2 py-1.5 text-xs font-bold uppercase tracking-wider text-blue-300/50">Aggiungi alla playlist</div>
@@ -345,12 +345,12 @@ export function MainContent({ currentView, currentPlaylist, setCurrentView, crea
                     <section className="mb-10 relative z-0">
                         <h2 className="text-[28px] font-bold mb-6 tracking-tight text-white drop-shadow-md">Benvenuto</h2>
                         <div className="grid grid-cols-2 md:grid-cols-2 xl:grid-cols-3 gap-y-4 gap-x-6">
-                            <div className="flex items-center bg-white/5 backdrop-blur-md border border-white/10 rounded-xl overflow-hidden hover:bg-white/10 hover:shadow-[0_8px_30px_rgb(0,0,0,0.12)] transition-all cursor-pointer group h-16 xl:h-20" onClick={() => setCurrentView('favorites')}>
-                                <div className="w-16 xl:w-20 h-full bg-gradient-to-br from-blue-500 to-sky-400 flex items-center justify-center flex-shrink-0 shadow-lg group-hover:shadow-[0_0_20px_rgba(52,211,153,0.5)] transition-shadow relative">
+                            <div className="flex items-center bg-white/5 backdrop-blur-md border border-white/10 rounded-xl overflow-hidden hover:bg-white/10 hover:shadow-[0_8px_30px_rgb(0,0,0,0.12)] transition-all cursor-pointer group h-14 xl:h-16" onClick={() => setCurrentView('library')}>
+                                <div className="w-14 xl:w-16 h-full bg-gradient-to-br from-blue-500 to-sky-400 flex items-center justify-center flex-shrink-0 shadow-lg group-hover:shadow-[0_0_20px_rgba(52,211,153,0.5)] transition-shadow relative">
                                    <div className="absolute inset-0 border-r border-white/20"></div>
-                                   <Heart className="w-7 h-7 xl:w-8 xl:h-8 text-white drop-shadow-md relative z-10" fill="currentColor" />
+                                   <Library className="w-6 h-6 xl:w-7 xl:h-7 text-white drop-shadow-md relative z-10" fill="currentColor" />
                                 </div>
-                                <span className="ml-4 font-bold text-[14px] xl:text-[15px] text-white drop-shadow-sm">Brani Piaciuti</span>
+                                <span className="ml-4 font-bold text-[13px] xl:text-[14px] text-white drop-shadow-sm">La Tua Libreria</span>
                             </div>
                         </div>
                     </section>
@@ -361,22 +361,22 @@ export function MainContent({ currentView, currentPlaylist, setCurrentView, crea
                                 <h2 className="text-xl font-bold tracking-tight text-white drop-shadow-md">Ascoltati di recente</h2>
                                 <button onClick={clearHistory} className="text-xs uppercase tracking-widest font-bold text-blue-200/50 hover:text-white transition-colors">Cancella Tutto</button>
                             </div>
-                            <TrackList tracks={history} isHistory={true} />
+                            <TrackList tracks={history} isHistory={true} compact={true} />
                         </section>
                     )}
 
                     {(suggestedTracks.length > 0 || loadingSuggestions) && (
-                        <section className="relative z-0 mt-12 pb-8">
-                            <div className="flex items-center mb-4">
-                                <h2 className="text-xl font-bold tracking-tight text-white drop-shadow-md flex items-center gap-2">
-                                   <Sparkles className="w-5 h-5 text-blue-400" />
+                        <section className="relative z-0 mt-8 pb-8">
+                            <div className="flex items-center mb-2">
+                                <h2 className="text-lg font-bold tracking-tight text-white drop-shadow-md flex items-center gap-2">
+                                   <Sparkles className="w-4 h-4 text-blue-400" />
                                    Suggeriti per te
                                 </h2>
                             </div>
                             {loadingSuggestions ? (
-                                <div className="flex justify-center p-8"><Loader2 className="w-8 h-8 animate-spin text-blue-400" /></div>
+                                <div className="flex justify-center p-4"><Loader2 className="w-6 h-6 animate-spin text-blue-400" /></div>
                             ) : (
-                                <TrackList tracks={suggestedTracks} />
+                                <TrackList tracks={suggestedTracks} compact={true} />
                             )}
                         </section>
                     )}
@@ -390,29 +390,63 @@ export function MainContent({ currentView, currentPlaylist, setCurrentView, crea
                 </section>
             )}
 
-            {currentView === 'favorites' && (
+            {currentView === 'library' && (
                 <section className="relative z-0">
                     <div className="flex items-end gap-6 mb-8 mt-4">
-                       <div className="w-48 h-48 bg-gradient-to-br from-blue-500 to-sky-400 shadow-[0_0_40px_rgba(52,211,153,0.3)] border border-white/20 flex items-center justify-center rounded-2xl relative overflow-hidden backdrop-blur-md">
+                       <div className="w-32 h-32 md:w-48 md:h-48 bg-gradient-to-br from-blue-500 to-sky-400 shadow-[0_0_40px_rgba(52,211,153,0.3)] border border-white/20 flex items-center justify-center rounded-2xl relative overflow-hidden backdrop-blur-md">
                            <div className="absolute inset-0 bg-white/10 backdrop-blur-sm Mix-blend-overlay"></div>
-                           <Heart className="w-20 h-20 text-white drop-shadow-xl relative z-10" fill="currentColor" />
+                           <Library className="w-12 h-12 md:w-20 md:h-20 text-white drop-shadow-xl relative z-10" />
                        </div>
                        <div className="pb-2">
-                           <div className="text-xs font-bold uppercase tracking-widest text-blue-200/60 mb-2 drop-shadow-sm">Playlist</div>
-                           <h1 className="text-5xl md:text-7xl font-bold tracking-tighter mb-4 text-white drop-shadow-lg">Brani Piaciuti</h1>
-                           <div className="text-sm text-blue-200/60 font-medium drop-shadow-sm">
-                               <span className="text-white">{user?.displayName}</span> • {favorites.length} brani
+                           <div className="text-[10px] md:text-xs font-bold uppercase tracking-widest text-blue-200/60 mb-2 drop-shadow-sm">Account</div>
+                           <h1 className="text-4xl md:text-7xl font-bold tracking-tighter mb-2 md:mb-4 text-white drop-shadow-lg">La Tua Libreria</h1>
+                           <div className="text-xs md:text-sm text-blue-200/60 font-medium drop-shadow-sm">
+                               <span className="text-white">{user?.displayName}</span> • {userPlaylists.length} playlist • {favorites.length} brani preferiti
                            </div>
                        </div>
                     </div>
-                    <div className="flex items-center gap-4 mb-6">
-                        <button className="w-14 h-14 bg-gradient-to-r from-blue-600 to-sky-500 hover:opacity-90 text-white rounded-full flex items-center justify-center shadow-[0_0_20px_rgba(52,211,153,0.4)] transition-all hover:scale-105 hover:shadow-[0_0_25px_rgba(52,211,153,0.6)]"
-                           onClick={() => { if(favorites.length) { setCurrentTrack(favorites[0]); setQueue(favorites.slice(1)); } }}
-                        >
-                           <Play className="w-7 h-7 ml-1 drop-shadow-sm" fill="currentColor" />
-                        </button>
+                    
+                    <div className="mb-10">
+                        <div className="flex items-center justify-between mb-4">
+                            <h2 className="text-xl font-bold tracking-tight text-white drop-shadow-md">Le tue Playlist</h2>
+                            <button onClick={() => setCreatePlaylistDialog(true)} className="flex items-center gap-2 text-xs uppercase tracking-widest font-bold text-blue-300 hover:text-white transition-colors bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-full border border-white/10">
+                                <Plus className="w-4 h-4" /> Crea 
+                            </button>
+                        </div>
+                        {userPlaylists.length > 0 ? (
+                            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+                                {userPlaylists.map(p => (
+                                    <div key={p.id} onClick={() => { setCurrentPlaylist(p); setCurrentView('playlist'); }} className="bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl p-4 cursor-pointer transition-all hover:-translate-y-1 hover:shadow-lg backdrop-blur-sm group">
+                                        <div className="w-full aspect-square bg-white/5 rounded-lg mb-4 flex items-center justify-center border border-white/10 shadow-inner group-hover:bg-white/10 transition-colors">
+                                           <ListMusic className="w-12 h-12 text-blue-200/40 group-hover:text-blue-300/80 transition-colors" />
+                                        </div>
+                                        <h3 className="font-bold text-white text-sm truncate mb-1">{p.title}</h3>
+                                        <p className="text-xs text-blue-200/60">Playlist</p>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="text-sm text-blue-200/50 italic py-4">Non hai ancora creato nessuna playlist.</div>
+                        )}
                     </div>
-                    <TrackList tracks={favorites} />
+
+                    <div>
+                        <div className="flex items-center gap-3 mb-4">
+                            <h2 className="text-xl font-bold tracking-tight text-white drop-shadow-md">Brani Piaciuti</h2>
+                            {favorites.length > 0 && (
+                                <button className="w-8 h-8 md:w-10 md:h-10 bg-gradient-to-r from-blue-600 to-sky-500 hover:opacity-90 text-white rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(52,211,153,0.3)] transition-all hover:scale-105"
+                                   onClick={() => { if(favorites.length) { setCurrentTrack(favorites[0]); setQueue(favorites.slice(1)); } }}
+                                >
+                                   <Play className="w-4 h-4 md:w-5 md:h-5 ml-1 drop-shadow-sm" fill="currentColor" />
+                                </button>
+                            )}
+                        </div>
+                        {favorites.length > 0 ? (
+                            <TrackList tracks={favorites} compact={true} />
+                        ) : (
+                            <div className="text-sm text-blue-200/50 italic py-4">Nessun brano aggiunto ai preferiti.</div>
+                        )}
+                    </div>
                 </section>
             )}
 

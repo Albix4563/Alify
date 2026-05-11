@@ -1,7 +1,7 @@
 'use client';
 
 import { useAuth } from '@/lib/auth-context';
-import { Home, Search, Heart, ListMusic, Plus, PlaySquare, Sparkles } from 'lucide-react';
+import { Home, Search, Heart, ListMusic, Plus, PlaySquare, Sparkles, Library } from 'lucide-react';
 import { ReactElement, useState, useEffect } from 'react';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -27,6 +27,7 @@ export function Sidebar({ currentView, setCurrentView, currentPlaylist, setCurre
   const navItems = [
     { id: 'home', icon: Home, label: 'Pagina Iniziale' },
     { id: 'search', icon: Search, label: 'Cerca' },
+    { id: 'library', icon: Library, label: 'La tua Libreria' },
     { id: 'ai-dj', icon: Sparkles, label: 'DJ Automatico' }
   ];
 
@@ -64,7 +65,7 @@ export function Sidebar({ currentView, setCurrentView, currentPlaylist, setCurre
         </nav>
 
         <div className="mt-8">
-          <h2 className="text-[11px] font-bold uppercase tracking-widest text-blue-200/50 mb-4 px-2">La Tua Libreria</h2>
+          <h2 className="text-[11px] font-bold uppercase tracking-widest text-blue-200/50 mb-4 px-2">Le tue Playlist</h2>
           <div className="space-y-1">
             <button className="flex items-center gap-3 w-full text-left text-blue-100/60 hover:text-white hover:bg-white/5 py-2 px-2 rounded-lg transition-colors group" onClick={() => setCreatePlaylistDialog(true)}>
               <div className="w-6 h-6 bg-white/10 backdrop-blur-md border border-white/10 rounded-lg flex items-center justify-center group-hover:bg-blue-500/20 transition-colors">
@@ -72,26 +73,6 @@ export function Sidebar({ currentView, setCurrentView, currentPlaylist, setCurre
               </div>
               <span className="font-bold text-sm">Crea Playlist</span>
             </button>
-
-            <div className="relative">
-              {currentView === 'favorites' && (
-                  <motion.div
-                    layoutId="waterDrop"
-                    className="absolute -left-3 top-[10%] bottom-[10%] w-1.5 bg-gradient-to-b from-sky-400 to-blue-500 rounded-r-full shadow-[0_0_8px_rgba(56,189,248,0.6)]"
-                    transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                  />
-               )}
-              <button 
-                className={`flex items-center gap-3 w-full text-left py-2 px-2 rounded-lg transition-colors group 
-                  ${currentView === 'favorites' ? 'text-white bg-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]' : 'text-blue-100/60 hover:text-white hover:bg-white/5'}`} 
-                onClick={() => setCurrentView('favorites')}
-              >
-                <div className="w-6 h-6 bg-gradient-to-br from-blue-500 to-sky-400 rounded-lg flex items-center justify-center shadow-[0_0_10px_rgba(52,211,153,0.3)] border border-white/20">
-                  <Heart className="w-3 h-3 text-white drop-shadow-sm" fill="currentColor" />
-                </div>
-                <span className="font-bold text-sm">Brani Piaciuti</span>
-              </button>
-            </div>
             
             <div className="pt-2 space-y-1">
                {playlists.map((p) => (

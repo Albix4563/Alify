@@ -1,6 +1,6 @@
 'use client';
 
-import { Home, Search, Heart, Sparkles, User, LogOut } from 'lucide-react';
+import { Home, Search, Heart, Sparkles, User, LogOut, Library } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useState, useEffect } from 'react';
 import { usePlayerStore } from '@/lib/store';
@@ -40,7 +40,7 @@ export function BottomNav({ currentView, setCurrentView }: any) {
   const navItems = [
     { id: 'home', icon: Home, label: 'Home' },
     { id: 'search', icon: Search, label: 'Cerca' },
-    { id: 'favorites', icon: Heart, label: 'Piaciuti' },
+    { id: 'library', icon: Library, label: 'Libreria' },
     { id: 'ai-dj', icon: Sparkles, label: 'Ai DJ' }
   ];
 
