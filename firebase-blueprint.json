@@ -1,0 +1,96 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile containing authentication and preferences",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "lastNicknameChange": { "type": "string", "format": "date-time" },
+        "audioQuality": { "type": "string" }
+      },
+      "required": ["email", "displayName"]
+    },
+    "Favorite": {
+      "title": "Favorite",
+      "description": "User's favorite track",
+      "type": "object",
+      "properties": {
+        "videoId": { "type": "string" },
+        "title": { "type": "string" },
+        "channelTitle": { "type": "string" },
+        "thumbnailUrl": { "type": "string" },
+        "addedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["videoId", "title", "channelTitle", "thumbnailUrl", "addedAt"]
+    },
+    "History": {
+      "title": "History",
+      "description": "User listening history entry",
+      "type": "object",
+      "properties": {
+        "track": {
+          "type": "object",
+          "properties": {
+            "videoId": { "type": "string" },
+            "title": { "type": "string" }
+          }
+        },
+        "playedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["track", "playedAt"]
+    },
+    "Playlist": {
+      "title": "Playlist",
+      "description": "A collection of tracks",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "isPublic": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "title", "isPublic"]
+    },
+    "PlaylistTrack": {
+      "title": "PlaylistTrack",
+      "description": "Track contained in a playlist",
+      "type": "object",
+      "properties": {
+        "videoId": { "type": "string" },
+        "title": { "type": "string" },
+        "channelTitle": { "type": "string" },
+        "thumbnailUrl": { "type": "string" },
+        "addedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["videoId", "title", "channelTitle", "thumbnailUrl", "addedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Data for user profile settings."
+    },
+    "/users/{userId}/favorites/{videoId}": {
+      "schema": { "$ref": "#/entities/Favorite" },
+      "description": "Favorites for a user."
+    },
+    "/users/{userId}/history/{historyId}": {
+      "schema": { "$ref": "#/entities/History" },
+      "description": "History for a user."
+    },
+    "/playlists/{playlistId}": {
+      "schema": { "$ref": "#/entities/Playlist" },
+      "description": "Playlists collection."
+    },
+    "/playlists/{playlistId}/tracks/{trackId}": {
+      "schema": { "$ref": "#/entities/PlaylistTrack" },
+      "description": "Tracks within a playlist."
+    }
+  }
+}

@@ -22,6 +22,10 @@ export const metadata: Metadata = {
   title: 'Albify',
   description: 'Web app based on YouTube.',
   manifest: '/manifest.webmanifest',
+  icons: {
+    icon: '/assets/logo.png',
+    apple: '/assets/logo.png',
+  },
 };
 
 export default function RootLayout({children}: {children: React.ReactNode}) {

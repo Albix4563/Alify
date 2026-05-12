@@ -97,11 +97,11 @@ export function InstallPrompt() {
                         </li>
                         <li className="flex items-center gap-3">
                             <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center flex-shrink-0 text-xs">2</div>
-                            <span>Scegli <strong>"Aggiungi alla schermata Home"</strong> <PlusSquare className="inline w-4 h-4 mx-1 text-sky-400" /></span>
+                            <span>Scegli <strong>&quot;Aggiungi alla schermata Home&quot;</strong> <PlusSquare className="inline w-4 h-4 mx-1 text-sky-400" /></span>
                         </li>
                         <li className="flex items-center gap-3">
                             <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center flex-shrink-0 text-xs">3</div>
-                            <span>Tocca <strong>"Aggiungi"</strong> in alto a destra</span>
+                            <span>Tocca <strong>&quot;Aggiungi&quot;</strong> in alto a destra</span>
                         </li>
                     </ol>
                 </div>

@@ -1,34 +1,124 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // 0. Global Safety Net
     match /{document=**} {
       allow read, write: if false;
     }
 
+    // --- PRIMITIVE HELPERS ---
+    function isSignedIn() { return request.auth != null; }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isValidId(id) { 
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); 
+    }
+
+    // --- VALIDATION HELPERS ---
+    function isValidUser(data) {
+      return (data.get('email', '') is string && data.get('email', '').size() <= 200)
+        && (data.get('displayName', '') is string && data.get('displayName', '').size() <= 100);
+    }
+
+    function isValidHistory(data) {
+      return data.keys().hasAll(['track', 'playedAt']) && data.keys().size() == 2
+        && data.track is map
+        && data.track.keys().hasAll(['videoId', 'title']);
+    }
+
+    function isValidFavorite(data) {
+      return data.keys().hasAll(['videoId', 'title', 'addedAt', 'channelTitle', 'thumbnailUrl']) && data.keys().size() == 5
+        && data.videoId is string && data.videoId.size() <= 100
+        && data.title is string && data.title.size() <= 200
+        && data.channelTitle is string && data.channelTitle.size() <= 200
+        && data.thumbnailUrl is string && data.thumbnailUrl.size() <= 1000;
+    }
+
+    function isValidPlaylist(data) {
+      return data.keys().hasAny(['ownerId', 'title', 'isPublic'])
+        && data.ownerId == request.auth.uid
+        && data.title is string && data.title.size() <= 150
+        && data.isPublic is bool
+        && (data.get('description', '') is string && data.get('description', '').size() <= 1000);
+    }
+
+    function isValidTrack(data) {
+      return data.keys().hasAny(['videoId', 'title', 'addedAt'])
+        && data.videoId is string && data.videoId.size() <= 100
+        && data.title is string && data.title.size() <= 200;
+    }
+
+    // --- RULES ---
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow get: if isSignedIn() && request.auth.uid == userId && isValidId(userId);
+      allow list: if false; // Users cannot be listed
       
+      allow create: if isSignedIn() 
+        && request.auth.uid == userId 
+        && isValidId(userId)
+        && isValidUser(incoming())
+        && incoming().keys().hasAll(['email', 'displayName', 'createdAt', 'updatedAt']);
+        
+      allow update: if isSignedIn() 
+        && request.auth.uid == userId 
+        && isValidId(userId)
+        && isValidUser(incoming())
+        && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'displayName', 'updatedAt', 'lastNicknameChange', 'audioQuality']);
+      
+      allow delete: if isSignedIn() && request.auth.uid == userId && isValidId(userId);
+
       match /favorites/{videoId} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
+        allow get, list: if isSignedIn() && request.auth.uid == userId;
+        allow create: if isSignedIn() && request.auth.uid == userId && isValidId(videoId) && isValidFavorite(incoming());
+        allow update: if isSignedIn() && request.auth.uid == userId && isValidId(videoId) && isValidFavorite(incoming()) && incoming().diff(existing()).affectedKeys().hasOnly(['addedAt']);
+        allow delete: if isSignedIn() && request.auth.uid == userId && isValidId(videoId);
       }
 
       match /history/{historyId} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
+        allow get, list: if isSignedIn() && request.auth.uid == userId;
+        allow create: if isSignedIn() && request.auth.uid == userId && isValidId(historyId) && isValidHistory(incoming());
+        allow update: if isSignedIn() && request.auth.uid == userId && isValidId(historyId) && isValidHistory(incoming()) && incoming().diff(existing()).affectedKeys().hasOnly(['playedAt', 'track']);
+        allow delete: if isSignedIn() && request.auth.uid == userId && isValidId(historyId);
       }
     }
 
     match /playlists/{playlistId} {
-      // Allow reading if it's public or owned by the requester
-      allow read: if resource.data.isPublic == true || (request.auth != null && resource.data.ownerId == request.auth.uid);
-      allow list: if request.auth != null && resource.data.ownerId == request.auth.uid;
+      allow get: if isValidId(playlistId) && (existing().isPublic == true || (isSignedIn() && existing().ownerId == request.auth.uid));
+      // Strict relational query enforcement
+      allow list: if isSignedIn() && existing().ownerId == request.auth.uid;
       
-      allow create: if request.auth != null && request.resource.data.ownerId == request.auth.uid;
-      allow update: if request.auth != null && resource.data.ownerId == request.auth.uid && request.resource.data.ownerId == request.auth.uid;
-      allow delete: if request.auth != null && resource.data.ownerId == request.auth.uid;
+      allow create: if isSignedIn() 
+        && isValidId(playlistId) 
+        && isValidPlaylist(incoming())
+        && incoming().keys().hasAll(['ownerId', 'title', 'isPublic', 'createdAt']);
+        
+      allow update: if isSignedIn() 
+        && isValidId(playlistId) 
+        && isValidPlaylist(incoming())
+        && existing().ownerId == request.auth.uid 
+        && incoming().ownerId == existing().ownerId
+        && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'description', 'isPublic', 'updatedAt']);
+        
+      allow delete: if isSignedIn() && isValidId(playlistId) && existing().ownerId == request.auth.uid;
 
       match /tracks/{trackId} {
-        allow read: if get(/databases/$(database)/documents/playlists/$(playlistId)).data.isPublic == true || (request.auth != null && get(/databases/$(database)/documents/playlists/$(playlistId)).data.ownerId == request.auth.uid);
-        allow write: if request.auth != null && get(/databases/$(database)/documents/playlists/$(playlistId)).data.ownerId == request.auth.uid;
+        // Relational sync constraint: track reads check the parent playlist's access
+        allow get, list: if isSignedIn() && isValidId(trackId) && 
+          (
+            get(/databases/$(database)/documents/playlists/$(playlistId)).data.isPublic == true || 
+            get(/databases/$(database)/documents/playlists/$(playlistId)).data.ownerId == request.auth.uid
+          );
+          
+        allow create: if isSignedIn() && isValidId(trackId) && isValidTrack(incoming()) && 
+          get(/databases/$(database)/documents/playlists/$(playlistId)).data.ownerId == request.auth.uid
+          && incoming().keys().hasAll(['videoId', 'title', 'channelTitle', 'thumbnailUrl', 'addedAt']);
+          
+        allow update: if isSignedIn() && isValidId(trackId) && isValidTrack(incoming()) && 
+          get(/databases/$(database)/documents/playlists/$(playlistId)).data.ownerId == request.auth.uid
+          && incoming().diff(existing()).affectedKeys().hasOnly(['addedAt']);
+          
+        allow delete: if isSignedIn() && isValidId(trackId) && 
+          get(/databases/$(database)/documents/playlists/$(playlistId)).data.ownerId == request.auth.uid;
       }
     }
   }
