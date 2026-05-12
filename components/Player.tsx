@@ -14,6 +14,7 @@ export function Player() {
   const { user } = useAuth();
   const { currentTrack, isPlaying, setIsPlaying, playNext, loopMode, setLoopMode, shuffleMode, setShuffleMode, videoExpanded, setVideoExpanded, queue, setQueue, audioQuality } = usePlayerStore();
   const playerRef = useRef<any>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
   const [isReady, setIsReady] = useState(false);
   const [isFetchingDJ, setIsFetchingDJ] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -142,9 +143,25 @@ export function Player() {
             artist: currentTrack.channelTitle,
             artwork: [{ src: currentTrack.thumbnailUrl, sizes: '512x512', type: 'image/jpeg' }]
         });
-        navigator.mediaSession.setActionHandler('play', () => setIsPlaying(true));
-        navigator.mediaSession.setActionHandler('pause', () => setIsPlaying(false));
+        navigator.mediaSession.setActionHandler('play', async () => {
+            await safePlayerCall('playVideo');
+            setIsPlaying(true);
+        });
+        navigator.mediaSession.setActionHandler('pause', async () => {
+            await safePlayerCall('pauseVideo');
+            setIsPlaying(false);
+        });
         navigator.mediaSession.setActionHandler('nexttrack', () => handleNext());
+        navigator.mediaSession.setActionHandler('previoustrack', async () => {
+            await safePlayerCall('seekTo', [0]);
+            setIsPlaying(true);
+        });
+        navigator.mediaSession.setActionHandler('seekto', (details) => {
+            if (details.seekTime !== undefined) {
+                safePlayerCall('seekTo', [details.seekTime]);
+                setCurrentTime(details.seekTime);
+            }
+        });
     }
   }, [currentTrack, setIsPlaying, handleNext]);
 
@@ -158,13 +175,29 @@ export function Player() {
   };
 
   useEffect(() => {
-     // react-youtube will handle autoplay on load and track change due to playerVars={autoplay: 1}.
-     // We only sync play state on explicit UI triggers (via togglePlayPause),
-     // but we can also have a strict check to ensure it doesn't get out of sync, safely ignoring videoId changes.
-     if (isReady && playerRef.current) {
-         if (isPlaying) safePlayerCall('playVideo');
-         else safePlayerCall('pauseVideo');
+     if (isPlaying) {
+         audioRef.current?.play().catch(() => {});
+         if (isReady && playerRef.current) safePlayerCall('playVideo');
+     } else {
+         audioRef.current?.pause();
+         if (isReady && playerRef.current) safePlayerCall('pauseVideo');
      }
+
+     if ('mediaSession' in navigator) {
+         try {
+             navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
+         } catch (e) {}
+     }
+  }, [isPlaying, isReady]);
+
+  useEffect(() => {
+    const handleVisibility = () => {
+        if (document.visibilityState === 'visible' && isPlaying) {
+             safePlayerCall('playVideo');
+        }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, [isPlaying]);
 
   useEffect(() => {
@@ -174,7 +207,18 @@ export function Player() {
         try {
           const time = await safePlayerCall('getCurrentTime');
           const dur = await safePlayerCall('getDuration');
-          if(time !== undefined) setCurrentTime(time);
+          if(time !== undefined) {
+              setCurrentTime(time);
+              if ('mediaSession' in navigator && dur > 0) {
+                  try {
+                      navigator.mediaSession.setPositionState({
+                          duration: dur,
+                          playbackRate: 1,
+                          position: time
+                      });
+                  } catch (e) {}
+              }
+          }
           if(dur !== undefined && dur > 0 && duration === 0) setDuration(dur);
         } catch (e) {}
       }, 1000);
@@ -219,6 +263,14 @@ export function Player() {
 
   return (
     <>
+      <audio 
+        ref={audioRef} 
+        loop 
+        preload="auto"
+        playsInline 
+        src="data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA" 
+        style={{ display: 'none' }} 
+      />
       <div 
          className={`
            pointer-events-none

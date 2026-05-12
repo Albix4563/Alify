@@ -48,6 +48,7 @@ import {
 import { toast } from "sonner";
 import { ProfileView } from "./ProfileView";
 import { ImportView } from "./ImportView";
+import { TrendingGenres } from "./TrendingGenres";
 
 export function MainContent({
   currentView,
@@ -203,9 +204,32 @@ export function MainContent({
       const res = await fetch(
         `/api/youtube/search?q=${encodeURIComponent(queryToSearch)}`,
       );
-      const data = await res.json();
       if (!res.ok) {
-        toast.error(data.error || "Errore durante la ricerca.");
+         let errorMsg = "Errore durante la ricerca.";
+         try {
+             const text = await res.text();
+             try {
+                 const data = JSON.parse(text);
+                 errorMsg = data.error || errorMsg;
+             } catch(e) {
+                 console.error(`Received non-JSON response (status ${res.status}):`, text.slice(0, 200));
+             }
+         } catch(e) {
+             console.error("Failed to read response as text.");
+         }
+         toast.error(errorMsg);
+         setSearching(false);
+         return;
+      }
+      
+      let data;
+      try {
+          const text = await res.text();
+          data = JSON.parse(text);
+      } catch (err) {
+          toast.error("Errore: la risposta del server non è valida.");
+          setSearching(false);
+          return;
       }
       setSearchResults(data.items || []);
     } catch (error) {
@@ -870,7 +894,7 @@ export function MainContent({
 
           {currentView === "home" && (
             <>
-              <section className="mb-8 relative z-0 flex flex-col pt-0">
+              <section className="mb-4 relative z-0 flex flex-col pt-0">
                 <div className="flex items-center gap-4 mb-4">
                   <div className="w-32 h-32 relative drop-shadow-2xl flex-shrink-0">
                     <img
@@ -905,8 +929,19 @@ export function MainContent({
                 </div>
               </section>
 
+              <TrendingGenres
+                onPlay={(trk, q) => {
+                  setCurrentTrack(trk);
+                  setQueue(q);
+                }}
+                toggleFavorite={toggleFavorite}
+                favorites={favorites}
+                userPlaylists={userPlaylists}
+                addToPlaylist={addToPlaylist}
+              />
+
               {history.length > 0 && (
-                <section className="relative z-0 mt-12 pb-8">
+                <section className="relative z-0 mt-8 pb-8">
                   <div className="flex items-center justify-between mb-4">
                     <h2 className="text-xl font-bold tracking-tight text-white drop-shadow-md">
                       Ascoltati di recente

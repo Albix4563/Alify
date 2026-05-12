@@ -47,14 +47,38 @@ export function ImportView({ currentView, userPlaylists, setCurrentView }: { cur
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url }),
       });
-      const data = await res.json();
+      
       if (!res.ok) {
-        toast.error(data.error || "Errore durante l'importazione");
-      } else {
-        // Automatically select all tracks
-        const tracks = (data.tracks || []).map((t: any) => ({ ...t, selected: true }));
-        setImportedData({ ...data, tracks });
+         let errorMsg = "Errore durante l'importazione";
+         try {
+             const text = await res.text();
+             try {
+                 const errorData = JSON.parse(text);
+                 errorMsg = errorData.error || errorMsg;
+             } catch(e) {
+                 console.error(`Received non-JSON response from /api/import (status ${res.status}):`, text.slice(0, 200));
+             }
+         } catch(e) {
+             console.error("Failed to read response as text.");
+         }
+         toast.error(errorMsg);
+         setLoading(false);
+         return;
       }
+
+      let data;
+      try {
+          const text = await res.text();
+          data = JSON.parse(text);
+      } catch (err) {
+          toast.error("Errore: la risposta del server non è valida.");
+          setLoading(false);
+          return;
+      }
+      
+      // Automatically select all tracks
+      const tracks = (data.tracks || []).map((t: any) => ({ ...t, selected: true }));
+      setImportedData({ ...data, tracks });
     } catch (err) {
       toast.error("Errore di connessione.");
     } finally {
