@@ -1,7 +1,7 @@
 'use client';
 
 import { usePlayerStore, Track, AudioQuality } from '@/lib/store';
-import { Pause, Play, SkipForward, Repeat, Repeat1, Shuffle, Maximize2, Minimize2, Loader2, Sparkles, ChevronDown, Activity } from 'lucide-react';
+import { Pause, Play, SkipForward, SkipBack, Rewind, FastForward, Heart, ListPlus, Repeat, Repeat1, Shuffle, Maximize2, Minimize2, Loader2, Sparkles, ChevronDown, Activity } from 'lucide-react';
 import ReactPlayer from 'react-youtube';
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/lib/auth-context';
@@ -261,6 +261,30 @@ export function Player() {
       }
   };
 
+  const handlePrev = async () => {
+    if (currentTime > 3) {
+      await safePlayerCall('seekTo', [0]);
+      setCurrentTime(0);
+    } else {
+      await safePlayerCall('seekTo', [0]);
+      setCurrentTime(0);
+    }
+  };
+
+  const handleSeekForward = () => {
+       const newTime = Math.min(duration, currentTime + 10);
+       safePlayerCall('seekTo', [newTime]);
+       setCurrentTime(newTime);
+       triggerSeekAnimation('forward');
+  };
+
+  const handleSeekBackward = () => {
+       const newTime = Math.max(0, currentTime - 10);
+       safePlayerCall('seekTo', [newTime]);
+       setCurrentTime(newTime);
+       triggerSeekAnimation('backward');
+  };
+
   return (
     <>
       <audio 
@@ -336,95 +360,112 @@ export function Player() {
               {/* Gesture overlay for Double Tap to Seek */}
               <div className="absolute inset-x-0 top-20 bottom-[30vh] z-[101] flex">
                   <div className="flex-1 flex items-center justify-center transition-opacity" 
-                       onDoubleClick={() => {
-                           const newTime = Math.max(0, currentTime - 10);
-                           safePlayerCall('seekTo', [newTime]);
-                           setCurrentTime(newTime);
-                           triggerSeekAnimation('backward');
-                       }} 
+                       onDoubleClick={handleSeekBackward} 
                   >
                       <AnimatePresence>
                           {seekAnimation === 'backward' && (
                               <motion.div 
-                                  initial={{ opacity: 0, scale: 0.5, x: 20 }}
-                                  animate={{ opacity: 1, scale: 1, x: 0 }}
-                                  exit={{ opacity: 0, scale: 1.5, x: -20 }}
-                                  className="w-16 h-16 bg-black/40 rounded-full flex items-center justify-center backdrop-blur-md"
+                                  initial={{ opacity: 0, scale: 0.8 }}
+                                  animate={{ opacity: 1, scale: 1 }}
+                                  exit={{ opacity: 0, scale: 0.8 }}
+                                  className="flex flex-col items-center justify-center p-4 bg-black/50 rounded-2xl backdrop-blur-md"
                               >
-                                  <SkipForward className="w-8 h-8 text-white rotate-180" />
+                                  <Rewind className="w-8 h-8 text-white fill-current" />
+                                  <span className="text-white font-bold mt-1 text-xs">-10s</span>
                               </motion.div>
                           )}
                       </AnimatePresence>
                   </div>
                   <div className="flex-1 flex items-center justify-center transition-opacity" 
-                       onDoubleClick={() => {
-                           const newTime = Math.min(duration, currentTime + 10);
-                           safePlayerCall('seekTo', [newTime]);
-                           setCurrentTime(newTime);
-                           triggerSeekAnimation('forward');
-                       }} 
+                       onDoubleClick={handleSeekForward} 
                   >
                       <AnimatePresence>
                           {seekAnimation === 'forward' && (
                               <motion.div 
-                                  initial={{ opacity: 0, scale: 0.5, x: -20 }}
-                                  animate={{ opacity: 1, scale: 1, x: 0 }}
-                                  exit={{ opacity: 0, scale: 1.5, x: 20 }}
-                                  className="w-16 h-16 bg-black/40 rounded-full flex items-center justify-center backdrop-blur-md"
+                                  initial={{ opacity: 0, scale: 0.8 }}
+                                  animate={{ opacity: 1, scale: 1 }}
+                                  exit={{ opacity: 0, scale: 0.8 }}
+                                  className="flex flex-col items-center justify-center p-4 bg-black/50 rounded-2xl backdrop-blur-md"
                               >
-                                  <SkipForward className="w-8 h-8 text-white" />
+                                  <FastForward className="w-8 h-8 text-white fill-current" />
+                                  <span className="text-white font-bold mt-1 text-xs">+10s</span>
                               </motion.div>
                           )}
                       </AnimatePresence>
                   </div>
               </div>
 
-              <div className="flex flex-col justify-end w-full mt-auto mb-0 z-[102] pt-10">
-                  <div className="flex flex-col mb-1.5">
-                      <h2 className="text-lg font-bold text-white truncate drop-shadow-lg">{currentTrack.title}</h2>
-                      <p className="text-xs text-blue-300 truncate font-medium drop-shadow-md">{currentTrack.channelTitle}</p>
+              <div className="flex flex-col justify-end w-full mt-auto mb-0 z-[102] pt-6 pb-2">
+                  <div className="flex items-center justify-between mb-4">
+                      <div className="flex flex-col flex-1 overflow-hidden pr-4">
+                          <h2 className="text-xl font-bold text-white truncate drop-shadow-lg">{currentTrack.title}</h2>
+                          <p className="text-sm text-blue-300/80 truncate font-medium drop-shadow-md">{currentTrack.channelTitle}</p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                          <button className="text-white/70 hover:text-white transition-colors active:scale-90">
+                               <Heart className="w-5 h-5" />
+                          </button>
+                          <button className="text-white/70 hover:text-white transition-colors active:scale-90">
+                               <ListPlus className="w-5 h-5" />
+                          </button>
+                      </div>
                   </div>
 
-                  <div className="flex flex-col gap-1 mb-1.5 w-full group/slider">
-                      <div className="relative flex flex-col justify-center h-2">
+                  <div className="flex flex-col gap-1.5 mb-6 w-full group/slider relative">
+                      <div className="relative flex items-center justify-center h-6 w-full">
                           <input 
                               type="range"
                               min={0}
                               max={duration || 100}
+                              step={0.1}
                               value={currentTime}
                               onChange={handleSeekChange}
                               onMouseUp={handleSeekCommit}
                               onTouchEnd={handleSeekCommit}
-                              className="absolute z-10 w-full h-full opacity-0 cursor-pointer touch-pan-x"
+                              className="absolute z-20 w-full h-full opacity-0 cursor-pointer touch-pan-x"
                           />
-                          <div className="w-full h-[3px] bg-white/30 rounded-full overflow-hidden shadow-inner border border-white/10">
+                          <div className="w-full h-1.5 bg-white/20 rounded-full overflow-hidden shadow-inner flex items-center relative z-10">
                               <div className="h-full bg-blue-500 rounded-full transition-all duration-150 ease-out shadow-[0_0_10px_rgba(59,130,246,0.8)]" style={{ width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }} />
                           </div>
                       </div>
-                      <div className="flex justify-between text-[9px] font-bold tracking-wider text-white drop-shadow-md">
+                      <div className="flex justify-between text-xs font-medium text-white/50 tracking-wide mt-1">
                           <span>{formatTime(currentTime)}</span>
                           <span>{formatTime(duration)}</span>
                       </div>
                   </div>
 
-                  <div className="flex items-center justify-between mb-2">
-                      <button className={`p-1.5 rounded-full backdrop-blur-md transition-all ${shuffleMode ? 'bg-blue-500/30 text-white shadow-[0_4px_15px_rgba(59,130,246,0.5)]' : 'bg-black/20 text-white/80 hover:bg-black/40 shadow-lg'}`} onClick={() => setShuffleMode(!shuffleMode)}>
-                          <Shuffle className="w-3.5 h-3.5 stroke-[2]" />
+                  <div className="flex items-center justify-between mb-4 px-1">
+                      <button className={`p-2 transition-all ${shuffleMode ? 'text-sky-400' : 'text-white/60 hover:text-white'}`} onClick={() => setShuffleMode(!shuffleMode)}>
+                          <Shuffle className="w-5 h-5" />
                       </button>
-                      <button className="p-1.5 rounded-full backdrop-blur-md bg-black/20 text-white hover:bg-black/40 shadow-lg hover:scale-105 transition-all active:scale-95 border border-white/5" onClick={handleNext}>
-                          <SkipForward className="w-4 h-4 fill-currentColor rotate-180 drop-shadow-md" />
-                      </button>
-                      <button 
-                          className="w-10 h-10 flex items-center justify-center bg-blue-500/30 text-white backdrop-blur-xl border border-blue-400/50 shadow-[0_8px_32px_rgba(59,130,246,0.5)] rounded-full hover:scale-105 active:scale-95 transition-all" 
-                          onClick={togglePlayPause}
-                      >
-                          {isPlaying ? <Pause className="w-4 h-4 fill-currentColor drop-shadow-lg" /> : <Play className="w-4 h-4 fill-currentColor ml-0.5 drop-shadow-lg" />}
-                      </button>
-                      <button className="p-1.5 rounded-full backdrop-blur-md bg-black/20 text-white hover:bg-black/40 shadow-lg hover:scale-105 transition-all active:scale-95 border border-white/5" onClick={handleNext}>
-                          <SkipForward className="w-4 h-4 fill-currentColor drop-shadow-md" />
-                      </button>
-                      <button className={`p-1.5 rounded-full backdrop-blur-md transition-all ${loopMode !== 'off' ? 'bg-blue-500/30 text-white shadow-[0_4px_15px_rgba(59,130,246,0.5)]' : 'bg-black/20 text-white/80 hover:bg-black/40 shadow-lg'}`} onClick={toggleLoop}>
-                          {loopMode === 'one' ? <Repeat1 className="w-3.5 h-3.5 stroke-[2]" /> : <Repeat className="w-3.5 h-3.5 stroke-[2]" />}
+                      
+                      <div className="flex items-center gap-2">
+                          <button className="text-white/90 hover:text-sky-400 p-2 transition-all active:scale-90" onClick={handlePrev}>
+                              <SkipBack className="w-7 h-7 fill-currentColor drop-shadow-md" />
+                          </button>
+                          <button className="text-white/80 hover:text-white p-2 transition-transform active:scale-90" onClick={handleSeekBackward}>
+                              <Rewind className="w-6 h-6 fill-currentColor drop-shadow-md" />
+                          </button>
+                          
+                          <div className="relative mx-1">
+                               <button 
+                                  className="w-16 h-16 flex items-center justify-center bg-blue-500 hover:bg-blue-400 text-white shadow-[0_8px_32px_rgba(59,130,246,0.5)] rounded-full hover:scale-105 active:scale-95 transition-all" 
+                                  onClick={togglePlayPause}
+                               >
+                                   {isPlaying ? <Pause className="w-7 h-7 fill-currentColor" /> : <Play className="w-7 h-7 fill-currentColor ml-1" />}
+                               </button>
+                          </div>
+                          
+                          <button className="text-white/80 hover:text-white p-2 transition-transform active:scale-90" onClick={handleSeekForward}>
+                              <FastForward className="w-6 h-6 fill-currentColor drop-shadow-md" />
+                          </button>
+                          <button className="text-white/90 hover:text-sky-400 p-2 transition-all active:scale-90" onClick={handleNext}>
+                              <SkipForward className="w-7 h-7 fill-currentColor drop-shadow-md" />
+                          </button>
+                      </div>
+
+                      <button className={`p-2 transition-all ${loopMode !== 'off' ? 'text-sky-400' : 'text-white/60 hover:text-white'}`} onClick={toggleLoop}>
+                          {loopMode === 'one' ? <Repeat1 className="w-5 h-5" /> : <Repeat className="w-5 h-5" />}
                       </button>
                   </div>
               </div>

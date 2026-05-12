@@ -4,6 +4,7 @@ import { Inter } from "next/font/google";
 import { cn } from "@/lib/utils";
 import { AuthProvider } from '@/lib/auth-context';
 import { BackgroundEffects } from '@/components/BackgroundEffects';
+import { InstallPrompt } from '@/components/InstallPrompt';
 
 import { Toaster } from 'sonner';
 
@@ -30,6 +31,7 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
         <BackgroundEffects />
         <AuthProvider>
           {children}
+          <InstallPrompt />
           <Toaster theme="dark" position="top-center" toastOptions={{ className: 'bg-black/80 backdrop-blur-md text-white border-white/10 shadow-2xl' }} />
         </AuthProvider>
       </body>

@@ -4,7 +4,8 @@ import { db } from '@/lib/firebase';
 import { doc, getDoc, setDoc, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '@/lib/firestore-error';
 import { usePlayerStore, AudioQuality } from '@/lib/store';
-import { Settings, Save, AlertTriangle, Trash2, Key, History, Sparkles, Loader2, User, Shield, HardDrive, ShieldAlert, Wifi, Zap, Volume2, Activity } from 'lucide-react';
+import { ChangelogView } from './ChangelogView';
+import { Settings, Save, AlertTriangle, Trash2, Key, History, Sparkles, Loader2, User, Shield, HardDrive, ShieldAlert, Wifi, Zap, Volume2, Activity, ListOrdered } from 'lucide-react';
 import { toast } from 'sonner';
 import { updateProfile, deleteUser } from 'firebase/auth';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
@@ -189,6 +190,9 @@ export function ProfileView() {
                     <TabsTrigger value="data" className="rounded-xl px-6 py-4 md:py-3 w-full md:w-auto after:hidden data-active:bg-white/10 data-active:text-white !text-blue-200/60 data-active:!text-white font-medium transition-all flex items-center justify-center md:justify-start gap-2 border-none ring-0 focus-visible:ring-0 focus-visible:outline-none dark:data-active:bg-white/10 dark:data-active:border-none !shadow-none">
                         <HardDrive className="w-5 h-5 md:w-4 md:h-4" /> Dati e Cronologia
                     </TabsTrigger>
+                    <TabsTrigger value="changelog" className="md:hidden rounded-xl px-6 py-4 md:py-3 w-full md:w-auto after:hidden data-active:bg-white/10 data-active:text-white !text-blue-200/60 data-active:!text-white font-medium transition-all flex items-center justify-center md:justify-start gap-2 border-none ring-0 focus-visible:ring-0 focus-visible:outline-none dark:data-active:bg-white/10 dark:data-active:border-none !shadow-none">
+                        <ListOrdered className="w-5 h-5 md:w-4 md:h-4" /> Change log
+                    </TabsTrigger>
                     <TabsTrigger value="security" className="rounded-xl px-6 py-4 md:py-3 w-full md:w-auto after:hidden data-active:bg-red-500/20 data-active:text-red-400 !text-blue-200/60 data-active:!text-red-400 font-medium transition-all flex items-center justify-center md:justify-start gap-2 border-none ring-0 focus-visible:ring-0 focus-visible:outline-none dark:data-active:bg-red-500/20 dark:data-active:border-none !shadow-none">
                         <ShieldAlert className="w-5 h-5 md:w-4 md:h-4" /> Sicurezza Account
                     </TabsTrigger>
@@ -299,6 +303,11 @@ export function ProfileView() {
                             })} className="text-orange-400 hover:bg-orange-500/10 border border-orange-500/20 px-4 py-3 md:py-4 rounded-xl text-sm md:text-base font-bold transition-all w-full text-center">Elimina Playlist</button>
                         </div>
                     </motion.div>
+                </TabsContent>
+
+                {/* --- TAB CHANGELOG --- */}
+                <TabsContent value="changelog" className="space-y-6">
+                    <ChangelogView />
                 </TabsContent>
 
                 {/* --- TAB SICUREZZA --- */}

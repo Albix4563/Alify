@@ -31,6 +31,7 @@ import {
   Trash2,
   History,
   Download,
+  X,
 } from "lucide-react";
 import { motion, useAnimation, PanInfo, AnimatePresence } from "motion/react";
 import {
@@ -49,6 +50,7 @@ import { toast } from "sonner";
 import { ProfileView } from "./ProfileView";
 import { ImportView } from "./ImportView";
 import { TrendingGenres } from "./TrendingGenres";
+import { ChangelogView } from "./ChangelogView";
 
 export function MainContent({
   currentView,
@@ -889,7 +891,8 @@ export function MainContent({
         transition={{ duration: 0.25, type: "spring", bounce: 0.15 }}
         className="w-full relative z-0"
       >
-          {currentView === "profile" && <ProfileView />}
+          {currentView === "profile" && <ProfileView setCurrentView={setCurrentView} />}
+          {currentView === "changelog" && <ChangelogView />}
           <ImportView currentView={currentView} userPlaylists={userPlaylists} setCurrentView={setCurrentView} />
 
           {currentView === "home" && (
@@ -1072,21 +1075,34 @@ export function MainContent({
                                         <History className="w-4 h-4 text-white/30 group-hover:text-sky-400/80 transition-colors" />
                                         {q}
                                       </div>
-                                      <div className="w-6 h-6 rounded-full bg-white/5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <svg
-                                          width="12"
-                                          height="12"
-                                          viewBox="0 0 24 24"
-                                          fill="none"
-                                          stroke="currentColor"
-                                          strokeWidth="2"
-                                          strokeLinecap="round"
-                                          strokeLinejoin="round"
-                                          className="text-white/70"
+                                      <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            const newRecent = recentSearches.filter((s) => s !== q);
+                                            setRecentSearches(newRecent);
+                                            localStorage.setItem("albify_recent_searches", JSON.stringify(newRecent));
+                                          }}
+                                          className="w-8 h-8 rounded-full hover:bg-white/10 flex items-center justify-center transition-colors !pointer-events-auto cursor-pointer relative z-10"
                                         >
-                                          <path d="M5 12h14"></path>
-                                          <path d="m12 5 7 7-7 7"></path>
-                                        </svg>
+                                          <X className="w-4 h-4 text-white/50 hover:text-white" />
+                                        </button>
+                                        <div className="w-6 h-6 rounded-full bg-white/5 flex items-center justify-center">
+                                          <svg
+                                            width="12"
+                                            height="12"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            strokeWidth="2"
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            className="text-white/70"
+                                          >
+                                            <path d="M5 12h14"></path>
+                                            <path d="m12 5 7 7-7 7"></path>
+                                          </svg>
+                                        </div>
                                       </div>
                                     </motion.button>
                                   ))}

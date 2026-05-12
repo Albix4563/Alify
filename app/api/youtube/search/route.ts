@@ -40,20 +40,6 @@ export async function GET(request: Request) {
   } catch (error) {
     console.error("Youtubei API error:", error);
     
-    // Fallback to official API if Innertube fails
-    const apiKey = process.env.YOUTUBE_API_KEY;
-    if (apiKey) {
-      try {
-        const res = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(q)}&type=video&videoCategoryId=10&maxResults=30&regionCode=IT&key=${apiKey}`);
-        if (res.ok) {
-          const data = await res.json();
-          return NextResponse.json(data);
-        }
-      } catch (fallbackError) {
-        console.error("Official YouTube API fallback also failed:", fallbackError);
-      }
-    }
-
     const errorMessage = error instanceof Error ? error.message : 'Failed to search YouTube';
     return NextResponse.json({ error: errorMessage }, { status: 500 });
   }

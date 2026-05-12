@@ -122,6 +122,15 @@ export function Sidebar({ currentView, setCurrentView, currentPlaylist, setCurre
         </div>
       </div>
       <div className={`p-4 pt-2 z-10 backdrop-blur-md bg-white/5 border-t border-white/10 w-full ${!isVisible && 'px-2'}`}>
+        {isVisible && (
+          <button 
+            onClick={() => setCurrentView('changelog')} 
+            className="w-full flex items-center justify-between px-3 py-1.5 mb-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition-colors group"
+          >
+            <span className="text-[11px] font-bold text-blue-200/60 group-hover:text-blue-200/80 uppercase tracking-widest">v0.5 (Beta)</span>
+            <span className="text-[10px] text-white/50 group-hover:text-white transition-colors bg-white/5 px-2 py-0.5 rounded-full font-medium border border-white/5">Change log</span>
+          </button>
+        )}
         <div className={`bg-black/20 backdrop-blur-xl border ${currentView === 'profile' ? 'border-sky-500/50 bg-white/10' : 'border-white/10 hover:bg-white/10'} rounded-2xl p-4 cursor-pointer transition-colors flex ${isVisible ? 'flex-col gap-1' : 'justify-center items-center py-4'} shadow-lg`}
              onClick={() => setCurrentView('profile')}
              title={!isVisible ? "Profilo" : undefined}

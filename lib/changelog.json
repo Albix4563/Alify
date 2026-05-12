@@ -1,0 +1,13 @@
+[
+  {
+    "version": "0.5 (Beta)",
+    "date": "2026-05-12",
+    "changes": [
+      "Inizializzazione dell'applicazione Albify v0.5 (Beta)",
+      "Aggiunta funzionalità di riproduzione in background per dispositivi mobile",
+      "Nuova interfaccia del player espanso per mobile con controlli precisi ed accessibili",
+      "Possibilità di eliminare le singole ricerche recenti nella schermata Cerca",
+      "Aggiunta la possibilità di installare Albify come PWA su iOS e Android per una migliore fruizione in background"
+    ]
+  }
+]
