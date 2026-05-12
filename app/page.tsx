@@ -4,7 +4,7 @@ import { useAuth } from '@/lib/auth-context';
 import { Sidebar } from '@/components/Sidebar';
 import { Player } from '@/components/Player';
 import { AuthForm } from '@/components/AuthForm';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { MainContent } from '@/components/MainContent';
 import { BottomNav } from '@/components/BottomNav';
 
@@ -15,6 +15,12 @@ export default function Home() {
   const [currentPlaylist, setCurrentPlaylist] = useState(null);
   const [createPlaylistDialog, setCreatePlaylistDialog] = useState(false);
   const [isSidebarVisible, setIsSidebarVisible] = useState(true);
+
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      document.getElementById('main-scroll-area')?.scrollTo({ top: 0 });
+    });
+  }, [currentView, currentPlaylist?.id]);
 
   if (loading) {
     return <div className="h-[100dvh] w-full flex items-center justify-center bg-transparent text-sky-400">Caricamento...</div>;
