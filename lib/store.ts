@@ -16,7 +16,6 @@ interface PlayerState {
   loopMode: 'off' | 'all' | 'one';
   shuffleMode: boolean;
   videoExpanded: boolean;
-  autoDJMode: boolean;
   audioQuality: AudioQuality;
   setCurrentTrack: (track: Track) => void;
   addToQueue: (track: Track) => void;
@@ -25,7 +24,6 @@ interface PlayerState {
   setLoopMode: (mode: 'off' | 'all' | 'one') => void;
   setShuffleMode: (shuffle: boolean) => void;
   setVideoExpanded: (expanded: boolean) => void;
-  setAutoDJMode: (autoDJ: boolean) => void;
   setAudioQuality: (quality: AudioQuality) => void;
   playNext: () => void;
 }
@@ -37,7 +35,6 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   loopMode: 'off',
   shuffleMode: false,
   videoExpanded: false,
-  autoDJMode: false,
   audioQuality: 'auto',
   setCurrentTrack: (track) => set({ currentTrack: track, isPlaying: true }),
   addToQueue: (track) => set((state) => ({ queue: [...state.queue, track] })),
@@ -46,7 +43,6 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   setLoopMode: (mode) => set({ loopMode: mode }),
   setShuffleMode: (shuffle) => set({ shuffleMode: shuffle }),
   setVideoExpanded: (expanded) => set({ videoExpanded: expanded }),
-  setAutoDJMode: (autoDJ) => set({ autoDJMode: autoDJ }),
   setAudioQuality: (quality) => set({ audioQuality: quality }),
   playNext: () => set((state) => {
     let newQueue = [...state.queue];

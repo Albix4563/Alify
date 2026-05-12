@@ -41,7 +41,6 @@ export function BottomNav({ currentView, setCurrentView }: any) {
     { id: 'home', icon: Home, label: 'Home' },
     { id: 'search', icon: Search, label: 'Cerca' },
     { id: 'library', icon: Library, label: 'Libreria' },
-    { id: 'ai-dj', icon: Sparkles, label: 'Ai DJ' }
   ];
 
   const handleLogout = () => {

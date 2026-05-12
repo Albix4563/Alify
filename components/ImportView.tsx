@@ -54,56 +54,11 @@ export function ImportView({ currentView, userPlaylists, setCurrentView }: { cur
         // Automatically select all tracks
         const tracks = (data.tracks || []).map((t: any) => ({ ...t, selected: true }));
         setImportedData({ ...data, tracks });
-        if (data.source === "spotify") {
-            toast.info("Brani Spotify analizzati. Albify cercherà ora i video corrispondenti.");
-        }
       }
     } catch (err) {
       toast.error("Errore di connessione.");
     } finally {
       setLoading(false);
-    }
-  };
-
-  const resolveSpotifyTrack = async (track: any, index: number) => {
-    if (track.found && track.videoId) return;
-
-    setResolvingIds(prev => new Set(prev).add(track.originalId));
-    try {
-      const res = await fetch(`/api/youtube/search?q=${encodeURIComponent(track.query)}`);
-      if (!res.ok) throw new Error("API error");
-      const data = await res.json();
-      const firstResult = data.items?.[0];
-      
-      setImportedData(prev => {
-        if (!prev) return prev;
-        const newTracks = [...prev.tracks];
-        if (firstResult) {
-          newTracks[index] = {
-            ...track,
-            found: true,
-            videoId: firstResult.id.videoId,
-            thumbnailUrl: firstResult.snippet?.thumbnails?.high?.url || track.thumbnailUrl,
-            // Keep original Spotify title for display, but it's now linked to YT videoId
-          };
-        } else {
-          newTracks[index] = { ...track, found: false, selected: false };
-        }
-        return { ...prev, tracks: newTracks };
-      });
-    } catch (err) {
-      setImportedData(prev => {
-        if (!prev) return prev;
-        const newTracks = [...prev.tracks];
-        newTracks[index] = { ...track, found: false, selected: false };
-        return { ...prev, tracks: newTracks };
-      });
-    } finally {
-      setResolvingIds(prev => {
-        const next = new Set(prev);
-        next.delete(track.originalId);
-        return next;
-      });
     }
   };
 
@@ -180,7 +135,7 @@ export function ImportView({ currentView, userPlaylists, setCurrentView }: { cur
         </div>
 
         <p className="text-sm md:text-base text-blue-100/70 font-medium max-w-lg text-center mb-8 relative z-10">
-          Incolla qui sotto il link pubblico di una playlist da Spotify o YouTube.
+          Incolla qui sotto il link pubblico di una playlist da YouTube.
           Penseremo noi a trovare i brani corrispondenti nel nostro catalogo.
         </p>
 
@@ -191,7 +146,7 @@ export function ImportView({ currentView, userPlaylists, setCurrentView }: { cur
             </div>
             <input
               type="url"
-              placeholder="https://open.spotify.com/playlist/... oppure https://youtube.com/playlist?list=..."
+              placeholder="https://youtube.com/playlist?list=..."
               className="flex-1 bg-transparent border-none p-4 md:py-4 text-white focus:outline-none placeholder-white/30 text-sm md:text-base"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
@@ -221,7 +176,7 @@ export function ImportView({ currentView, userPlaylists, setCurrentView }: { cur
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-6">
               <div>
                  <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                   {importedData.source === 'spotify' ? <Activity className="w-5 h-5 text-green-400" /> : <Youtube className="w-5 h-5 text-red-500" />}
+                   <Youtube className="w-5 h-5 text-red-500" />
                    {importedData.playlistTitle}
                  </h2>
                  <p className="text-sm text-blue-200/60 mt-1">
@@ -278,13 +233,6 @@ export function ImportView({ currentView, userPlaylists, setCurrentView }: { cur
                          <div className="flex items-center text-sky-400 text-xs gap-1"><Loader2 className="w-3 h-3 animate-spin"/> Ricerca...</div>
                        ) : track.found ? (
                          <span className="text-xs text-emerald-400 font-bold bg-emerald-500/10 px-2 py-1 rounded">Trovato</span>
-                       ) : track.source === 'spotify' && track.query ? (
-                         <button 
-                           onClick={() => resolveSpotifyTrack(track, idx)} 
-                           className="text-xs bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded transition-colors flex items-center gap-1"
-                         >
-                           <Search className="w-3 h-3"/> Cerca
-                         </button>
                        ) : (
                          <span className="text-xs text-red-400 font-bold bg-red-500/10 px-2 py-1 rounded">Non Trovato</span>
                        )}

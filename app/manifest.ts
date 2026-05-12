@@ -4,7 +4,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: 'Albify',
     short_name: 'Albify',
-    description: 'Spotify-like web app based on YouTube.',
+    description: 'Web app based on YouTube.',
     start_url: '/',
     display: 'standalone',
     background_color: '#000000',

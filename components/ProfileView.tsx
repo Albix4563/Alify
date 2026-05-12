@@ -132,25 +132,6 @@ export function ProfileView() {
         }
     };
 
-    const deleteAIMemory = async () => {
-        if (!user) return;
-        setLoading(true);
-        try {
-             const q = query(collection(db, `users/${user.uid}/favorites`));
-             const snapshot = await getDocs(q);
-             const batch = writeBatch(db);
-             snapshot.docs.forEach(d => batch.delete(d.ref));
-             await batch.commit();
-             toast.success('Memoria dell\'IA (Preferiti) eliminata.');
-        } catch (e) {
-              console.error(e);
-              toast.error('Errore durante l\'eliminazione della memoria IA.');
-        } finally {
-             setLoading(false);
-             setConfirmDialog(null);
-        }
-    };
-
     const deleteAccount = async () => {
         if (!user) return;
         setLoading(true);
@@ -304,17 +285,6 @@ export function ProfileView() {
                                 desc: 'Sei sicuro di voler eliminare la tua cronologia degli ascolti? L\'azione è irreversibile.',
                                 action: deleteHistory
                             })} className="text-white hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 px-4 py-3 md:py-4 rounded-xl text-sm md:text-base font-bold transition-all w-full text-center">Svuota Cronologia</button>
-                        </div>
-                        
-                        <div className="bg-[#121215]/80 hover:bg-[#18181c] transition-colors border border-white/10 rounded-[24px] md:rounded-3xl p-6 md:p-8 flex flex-col shadow-sm backdrop-blur-xl">
-                            <div className="p-3 bg-purple-500/10 rounded-2xl w-fit mb-4 md:mb-5 border border-purple-500/20"><Sparkles className="text-purple-400 w-6 h-6" /></div>
-                            <h3 className="font-bold text-white text-base md:text-lg mb-2 tracking-tight">Memoria Intelligenza Artificiale</h3>
-                            <p className="text-sm text-blue-200/60 mb-6 md:mb-8 flex-1 leading-relaxed">Cancella i tuoi preferiti. L&apos;IA dimenticherà i tuoi gusti e non ti consiglierà brani simili a quelli attuali.</p>
-                            <button onClick={() => setConfirmDialog({
-                                title: 'Reset Memoria IA',
-                                desc: 'Eliminando le tue preferenze, i consigli IA ripartiranno da zero. Procedere?',
-                                action: deleteAIMemory
-                            })} className="text-white hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 px-4 py-3 md:py-4 rounded-xl text-sm md:text-base font-bold transition-all w-full text-center">Azzera Memoria IA</button>
                         </div>
                         
                         <div className="bg-[#121215]/80 hover:bg-[#18181c] transition-colors border border-white/10 rounded-[24px] md:rounded-3xl p-6 md:p-8 flex flex-col shadow-sm backdrop-blur-xl">

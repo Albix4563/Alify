@@ -4,7 +4,6 @@ import { usePlayerStore, Track, AudioQuality } from '@/lib/store';
 import { Pause, Play, SkipForward, Repeat, Repeat1, Shuffle, Maximize2, Minimize2, Loader2, Sparkles, ChevronDown, Activity } from 'lucide-react';
 import ReactPlayer from 'react-youtube';
 import { useRef, useEffect, useState, useCallback } from 'react';
-import { GoogleGenAI, Type } from '@google/genai';
 import { useAuth } from '@/lib/auth-context';
 import { db } from '@/lib/firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
@@ -13,7 +12,7 @@ import { motion, AnimatePresence } from 'motion/react';
 
 export function Player() {
   const { user } = useAuth();
-  const { currentTrack, isPlaying, setIsPlaying, playNext, loopMode, setLoopMode, shuffleMode, setShuffleMode, videoExpanded, setVideoExpanded, autoDJMode, setAutoDJMode, queue, setQueue, audioQuality } = usePlayerStore();
+  const { currentTrack, isPlaying, setIsPlaying, playNext, loopMode, setLoopMode, shuffleMode, setShuffleMode, videoExpanded, setVideoExpanded, queue, setQueue, audioQuality } = usePlayerStore();
   const playerRef = useRef<any>(null);
   const [isReady, setIsReady] = useState(false);
   const [isFetchingDJ, setIsFetchingDJ] = useState(false);
@@ -132,85 +131,9 @@ export function Player() {
         await safePlayerCall('playVideo');
         return;
     }
-
-    if (queue.length === 0 && autoDJMode && currentTrack) {
-        setIsFetchingDJ(true);
-        try {
-            let playlistContext = '';
-            if (user) {
-                try {
-                    const { getDocs, query, collection, where } = await import('firebase/firestore');
-                    const q = query(collection(db, 'playlists'), where('ownerId', '==', user.uid));
-                    const snapshot = await getDocs(q);
-                    let allUserTracks: string[] = [];
-                    for (const docSnap of snapshot.docs) {
-                        const tracksQ = query(collection(db, 'playlists', docSnap.id, 'tracks'));
-                        const tracksSnap = await getDocs(tracksQ);
-                        tracksSnap.forEach(tDoc => {
-                            const data = tDoc.data();
-                            if (data.title && data.channelTitle) {
-                                allUserTracks.push(`${data.title} by ${data.channelTitle}`);
-                            }
-                        });
-                    }
-                    if (allUserTracks.length > 0) {
-                        const sampled = allUserTracks.sort(() => 0.5 - Math.random()).slice(0, 30);
-                        playlistContext = `\n\nFor reference, my personal playlists contain these tracks:\n- ${sampled.join('\n- ')}\n\nIMPORTANT: Choose 2 or 3 tracks directly from my personal playlists listed above, and for the remaining ones, suggest your own tracks. Ensure all tracks fit the musical style, genre, and mood of "${currentTrack.title}".`;
-                    }
-                } catch (err) {
-                    console.error('Error fetching playlists context:', err);
-                }
-            }
-
-            const ai = new GoogleGenAI({ apiKey: process.env.NEXT_PUBLIC_GEMINI_API_KEY });
-            const prompt = `I just finished listening to "${currentTrack.title}" by ${currentTrack.channelTitle}. Suggest 5 new YouTube search queries (artist and song name) to continue the mix automatically.${playlistContext}\n\nPrefer Italian or European tracks if the original track is Italian. Return a JSON array of strings.`;
-            const response = await ai.models.generateContent({
-               model: "gemini-2.5-flash",
-               contents: prompt,
-               config: {
-                 responseMimeType: 'application/json',
-                 responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } }
-               }
-            });
-            const queries: string[] = JSON.parse(response.text || "[]");
-            const searchPromises = queries.map(async (query) => {
-                try {
-                    const res = await fetch(`/api/youtube/search?q=${encodeURIComponent(query)}`);
-                    if (!res.ok) return null;
-                    const contentType = res.headers.get("content-type");
-                    if (contentType && contentType.includes("application/json")) {
-                        const data = await res.json();
-                        return data.items && data.items.length > 0 ? data.items[0] : null;
-                    }
-                    return null;
-                } catch (err) {
-                    return null;
-                }
-            });
-            let results = await Promise.all(searchPromises);
-            results = results.filter(r => r !== null);
-            if (results.length > 0) {
-                 const tracks = results.map((r: any) => ({
-                    videoId: r.id.videoId, title: r.snippet.title, channelTitle: r.snippet.channelTitle,
-                    thumbnailUrl: r.snippet.thumbnails?.high?.url || r.snippet.thumbnails?.default?.url
-                 }));
-                 setQueue(tracks);
-            }
-        } catch (e: any) {
-            console.error('AutoDJ Error:', e);
-            if (e?.status === 429 || e?.message?.includes('429') || e?.message?.includes('quota') || (e?.error?.code === 429) || e?.message?.includes('RESOURCE_EXHAUSTED')) {
-                toast.error('Limite IA superato per AutoDJ.', { duration: 5000 });
-            } else {
-                toast.error('Errore durante la generazione dei brani tramite AutoDJ.');
-            }
-        } finally {
-            setIsFetchingDJ(false);
-            playNext();
-        }
-    } else {
-        playNext();
-    }
-  }, [loopMode, queue.length, autoDJMode, currentTrack, playNext, setQueue, user]);
+    
+    playNext();
+  }, [loopMode, playNext]);
 
   useEffect(() => {
     if (currentTrack && 'mediaSession' in navigator) {
@@ -445,21 +368,11 @@ export function Player() {
                       >
                           {isPlaying ? <Pause className="w-4 h-4 fill-currentColor drop-shadow-lg" /> : <Play className="w-4 h-4 fill-currentColor ml-0.5 drop-shadow-lg" />}
                       </button>
-                      <button className="p-1.5 rounded-full backdrop-blur-md bg-black/20 text-white hover:bg-black/40 shadow-lg hover:scale-105 transition-all active:scale-95 border border-white/5" onClick={handleNext} disabled={isFetchingDJ}>
-                          {isFetchingDJ ? <Loader2 className="w-4 h-4 animate-spin text-blue-400" /> : <SkipForward className="w-4 h-4 fill-currentColor drop-shadow-md" />}
+                      <button className="p-1.5 rounded-full backdrop-blur-md bg-black/20 text-white hover:bg-black/40 shadow-lg hover:scale-105 transition-all active:scale-95 border border-white/5" onClick={handleNext}>
+                          <SkipForward className="w-4 h-4 fill-currentColor drop-shadow-md" />
                       </button>
                       <button className={`p-1.5 rounded-full backdrop-blur-md transition-all ${loopMode !== 'off' ? 'bg-blue-500/30 text-white shadow-[0_4px_15px_rgba(59,130,246,0.5)]' : 'bg-black/20 text-white/80 hover:bg-black/40 shadow-lg'}`} onClick={toggleLoop}>
                           {loopMode === 'one' ? <Repeat1 className="w-3.5 h-3.5 stroke-[2]" /> : <Repeat className="w-3.5 h-3.5 stroke-[2]" />}
-                      </button>
-                  </div>
-
-                  <div className="flex justify-center pb-0">
-                      <button 
-                          className={`flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-bold tracking-wide transition-all backdrop-blur-md border ${autoDJMode ? 'bg-blue-500/30 text-white border-blue-400/50 shadow-[0_8px_32px_rgba(59,130,246,0.5)]' : 'bg-black/20 text-white/70 border-white/10 hover:bg-black/40 shadow-lg'}`}
-                          onClick={() => { setAutoDJMode(!autoDJMode); if(!autoDJMode) toast.success('Auto DJ Attivato!'); else toast.info('Auto DJ Disattivato'); }}
-                      >
-                          <Sparkles className="w-3 h-3 text-blue-400 drop-shadow-md" />
-                          Auto DJ {autoDJMode ? 'ON' : 'OFF'}
                       </button>
                   </div>
               </div>
@@ -505,8 +418,8 @@ export function Player() {
           </div>
 
           <div className="flex md:hidden items-center justify-end gap-3 ml-4" onClick={e => e.stopPropagation()}>
-              <button className="p-2 text-white/70 hover:text-white transition-colors" onClick={handleNext} disabled={isFetchingDJ}>
-                  {isFetchingDJ ? <Loader2 className="w-5 h-5 animate-spin" /> : <SkipForward className="w-5 h-5 fill-currentColor" />}
+              <button className="p-2 text-white/70 hover:text-white transition-colors" onClick={handleNext}>
+                  <SkipForward className="w-5 h-5 fill-currentColor" />
               </button>
               <button 
                   className="w-10 h-10 flex items-center justify-center bg-white/10 hover:bg-white/20 rounded-full text-white transition-all active:scale-95" 
@@ -534,8 +447,8 @@ export function Player() {
                 >
                   {isPlaying ? <Pause className="w-6 h-6 fill-currentColor text-white drop-shadow-md" /> : <Play className="w-6 h-6 fill-currentColor ml-1 text-white drop-shadow-md" />}
                </button>
-               <button className="text-blue-200/60 hover:text-white transition-colors hover:scale-110 relative" onClick={handleNext} disabled={isFetchingDJ}>
-                  {isFetchingDJ ? <Loader2 className="w-5 h-5 animate-spin text-blue-400" /> : <SkipForward className="w-5 h-5 fill-currentColor drop-shadow-md" />}
+               <button className="text-blue-200/60 hover:text-white transition-colors hover:scale-110 relative" onClick={handleNext}>
+                  <SkipForward className="w-5 h-5 fill-currentColor drop-shadow-md" />
                </button>
                <button 
                   className={`transition-colors hover:scale-110 flex items-center justify-center ${loopMode !== 'off' ? 'text-sky-400' : 'text-blue-200/60 hover:text-white'}`}
@@ -567,14 +480,6 @@ export function Player() {
           </div>
 
           <div className="hidden md:flex items-center justify-end w-[30%] min-w-[180px] pr-2 gap-4">
-              <button 
-                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold tracking-wide transition-all ${autoDJMode ? 'bg-gradient-to-r from-blue-600 to-sky-500 text-white shadow-[0_0_10px_rgba(52,211,153,0.3)]' : 'bg-white/10 text-blue-300/70 hover:text-white hover:bg-white/20'}`}
-                 onClick={() => { setAutoDJMode(!autoDJMode); if(!autoDJMode) toast.success('Auto DJ Attivato!'); else toast.info('Auto DJ Disattivato'); }}
-                 title="Mix Continuo Auto DJ"
-              >
-                 <Sparkles className="w-3.5 h-3.5" />
-                 Auto DJ
-              </button>
               <button 
                  className="text-blue-200/60 hover:text-white transition-colors hover:scale-110" 
                  onClick={() => setVideoExpanded(!videoExpanded)}

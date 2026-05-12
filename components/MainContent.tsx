@@ -25,7 +25,6 @@ import {
   MoreVertical,
   Loader2,
   ListMusic,
-  Sparkles,
   Library,
   LayoutGrid,
   List,
@@ -33,7 +32,6 @@ import {
   History,
   Download,
 } from "lucide-react";
-import { GoogleGenAI, Type } from "@google/genai";
 import { motion, useAnimation, PanInfo, AnimatePresence } from "motion/react";
 import {
   DropdownMenu,
@@ -93,18 +91,12 @@ export function MainContent({
   const [userPlaylists, setUserPlaylists] = useState<any[]>([]);
 
   const [newPlaylistTitle, setNewPlaylistTitle] = useState("");
-  const [mixing, setMixing] = useState(false);
-  const [aiPrompt, setAiPrompt] = useState("");
-  const [djTracks, setDjTracks] = useState<any[]>([]);
   const [history, setHistory] = useState<any[]>([]);
-  const [suggestedTracks, setSuggestedTracks] = useState<any[]>([]);
-  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [playlistLayout, setPlaylistLayout] = useState<"list" | "grid">("list");
   const [swipeActionTrack, setSwipeActionTrack] = useState<any | null>(null);
   const [shareDialogPlaylist, setShareDialogPlaylist] = useState<any | null>(
     null,
   );
-  const [playlistDjMixing, setPlaylistDjMixing] = useState(false);
   const [playlistToDelete, setPlaylistToDelete] = useState<any | null>(null);
 
   useEffect(() => {
@@ -191,81 +183,6 @@ export function MainContent({
     );
     return () => unsub();
   }, [user, currentView, currentPlaylist]);
-
-  useEffect(() => {
-    const fetchSuggestions = async () => {
-      if (
-        suggestedTracks.length > 0 ||
-        loadingSuggestions
-      )
-        return;
-      setLoadingSuggestions(true);
-      try {
-        let prompt = "";
-        if (history.length > 0) {
-          const recentTracks = history
-            .slice(0, 3)
-            .map((t) => `"${t.title}" by ${t.channelTitle}`)
-            .join(", ");
-          prompt = `Based on the user's recently played tracks: ${recentTracks}. Suggest 5 different YouTube search queries (artist and song name) that fit exactly in a similar musical style or genre but are not the same tracks. Take into consideration Italian music if the user listens to Italian artists. Return a JSON array of strings.`;
-        } else {
-          prompt = `Suggest 5 of the most popular and listened to global hit songs right now (recent years, not old songs). Return a JSON array of strings containing "Artist - Song Title".`;
-        }
-
-        const ai = new GoogleGenAI({
-          apiKey: process.env.NEXT_PUBLIC_GEMINI_API_KEY,
-        });
-        const response = await ai.models.generateContent({
-          model: "gemini-2.5-flash",
-          contents: prompt,
-          config: {
-            responseMimeType: "application/json",
-            responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } },
-          },
-        });
-        const queries: string[] = JSON.parse(response.text || "[]");
-        const searchPromises = queries.map(async (query) => {
-          try {
-            const res = await fetch(
-              `/api/youtube/search?q=${encodeURIComponent(query)}`,
-            );
-            if (!res.ok) return null;
-            const data = await res.json();
-            return data.items && data.items.length > 0 ? data.items[0] : null;
-          } catch (err) {
-            return null;
-          }
-        });
-        let results = await Promise.all(searchPromises);
-        results = results.filter((r) => r !== null);
-        if (results && results.length > 0) {
-          const tracks = results.map((r: any) => ({
-            videoId: r.id.videoId,
-            title: r.snippet.title,
-            channelTitle: r.snippet.channelTitle,
-            thumbnailUrl:
-              r.snippet.thumbnails?.high?.url ||
-              r.snippet.thumbnails?.default?.url,
-          }));
-          setSuggestedTracks(tracks);
-        }
-      } catch (error: any) {
-        console.error("Error fetching suggestions:", error);
-        if (
-          error?.status === 429 ||
-          error?.message?.includes("429") ||
-          error?.message?.includes("quota") ||
-          error?.error?.code === 429 ||
-          error?.message?.includes("RESOURCE_EXHAUSTED")
-        ) {
-          // Silently fail for suggestions
-        }
-      } finally {
-        setLoadingSuggestions(false);
-      }
-    };
-    fetchSuggestions();
-  }, [history]);
 
   const handleSearch = async (queryToSearch: string = searchQuery) => {
     if (!queryToSearch.trim()) return;
@@ -381,76 +298,6 @@ export function MainContent({
     }
   };
 
-  const generateDJPlaylist = async () => {
-    if (!aiPrompt.trim()) return;
-    setMixing(true);
-    try {
-      const ai = new GoogleGenAI({
-        apiKey: process.env.NEXT_PUBLIC_GEMINI_API_KEY,
-      });
-
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: `Generate a list of 10 YouTube search queries (just artist and song name) that fit this prompt: "${aiPrompt}". Consider the Italian musical context if relevant. Return only the track names in JSON array format.`,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } },
-        },
-      });
-
-      const suggestionsText = response.text;
-      if (!suggestionsText) throw new Error("No response from Gemini");
-
-      const queries: string[] = JSON.parse(suggestionsText);
-
-      const searchPromises = queries.map(async (query) => {
-        try {
-          const res = await fetch(
-            `/api/youtube/search?q=${encodeURIComponent(query)}`,
-          );
-          if (!res.ok) return null;
-          const data = await res.json();
-          return data.items && data.items.length > 0 ? data.items[0] : null;
-        } catch (err) {
-          return null;
-        }
-      });
-
-      let results = await Promise.all(searchPromises);
-      results = results.filter((r) => r !== null);
-
-      if (results && results.length > 0) {
-        const tracks = results.map((r: any) => ({
-          videoId: r.id.videoId,
-          title: r.snippet.title,
-          channelTitle: r.snippet.channelTitle,
-          thumbnailUrl:
-            r.snippet.thumbnails?.high?.url ||
-            r.snippet.thumbnails?.default?.url,
-        }));
-        setDjTracks(tracks);
-      }
-    } catch (error: any) {
-      console.error("Mixer error:", error);
-      if (
-        error?.status === 429 ||
-        error?.message?.includes("429") ||
-        error?.message?.includes("quota") ||
-        error?.error?.code === 429 ||
-        error?.message?.includes("RESOURCE_EXHAUSTED")
-      ) {
-        toast.error(
-          "Hai superato il limite di utilizzo dell'IA. Ripristino dei limiti domani.",
-          { duration: 6000 },
-        );
-      } else {
-        toast.error("Errore durante la generazione della playlist DJ.");
-      }
-    } finally {
-      setMixing(false);
-    }
-  };
-
   const sharePlaylist = async () => {
     if (!shareDialogPlaylist) return;
     try {
@@ -476,96 +323,6 @@ export function MainContent({
     const shuffled = [...playlistTracks].sort(() => Math.random() - 0.5);
     setCurrentTrack(shuffled[0]);
     setQueue(shuffled.slice(1));
-  };
-
-  const activatePlaylistDJ = async () => {
-    if (!playlistTracks.length || playlistDjMixing) return;
-    setPlaylistDjMixing(true);
-    toast("Gemini DJ sta analizzando la playlist...", {
-      icon: <Sparkles className="w-4 h-4 text-blue-400" />,
-    });
-    try {
-      const ai = new GoogleGenAI({
-        apiKey: process.env.NEXT_PUBLIC_GEMINI_API_KEY,
-      });
-
-      // Limit to max 10 tracks for analysis to save prompt tokens
-      const trackTitles = playlistTracks
-        .slice(0, 10)
-        .map((t) => `${t.title} ${t.channelTitle}`)
-        .join(", ");
-
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: `Based on these songs: "${trackTitles}", recommend 5 similar songs that fit the mood/theme perfectly. Return a JSON array of strings containing just the 'artist - song name'.`,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } },
-        },
-      });
-
-      const suggestionsText = response.text;
-      if (!suggestionsText) throw new Error("No response from AI");
-
-      const queries: string[] = JSON.parse(suggestionsText);
-
-      const searchPromises = queries.map(async (query) => {
-        try {
-          const res = await fetch(
-            `/api/youtube/search?q=${encodeURIComponent(query)}`,
-          );
-          if (!res.ok) return null;
-          const data = await res.json();
-          return data.items && data.items.length > 0 ? data.items[0] : null;
-        } catch (err) {
-          return null;
-        }
-      });
-
-      const results = (await Promise.all(searchPromises)).filter(
-        (r) => r !== null,
-      );
-
-      if (results && results.length > 0) {
-        const newExternalTracks = results.map((r: any) => ({
-          videoId: r.id.videoId,
-          title: r.snippet.title,
-          channelTitle: r.snippet.channelTitle,
-          thumbnailUrl:
-            r.snippet.thumbnails?.high?.url ||
-            r.snippet.thumbnails?.default?.url,
-        }));
-
-        // Interleave external tracks into the remaining playlist evenly
-        const mixedQueue = [...playlistTracks];
-        let insertIdx =
-          Math.floor(mixedQueue.length / (newExternalTracks.length + 1)) || 1;
-        newExternalTracks.forEach((extTrack, i) => {
-          mixedQueue.splice(insertIdx * (i + 1), 0, extTrack);
-        });
-
-        setCurrentTrack(mixedQueue[0]);
-        setQueue(mixedQueue.slice(1));
-        toast.success("Gemini DJ ha mixato nuovi brani nella tua playlist!");
-      } else {
-        toast.error("Non è stato possibile mixare brani oggi.");
-      }
-    } catch (error: any) {
-      console.error("Playlist DJ error:", error);
-      if (
-        error?.status === 429 ||
-        error?.message?.includes("429") ||
-        error?.message?.includes("quota") ||
-        error?.error?.code === 429 ||
-        error?.message?.includes("RESOURCE_EXHAUSTED")
-      ) {
-        toast.error("Limite IA superato. Riprova domani.", { duration: 6000 });
-      } else {
-        toast.error("Errore durante l'azione DJ.");
-      }
-    } finally {
-      setPlaylistDjMixing(false);
-    }
   };
 
   const removeHistoryTrack = async (videoId: string) => {
@@ -1165,24 +922,6 @@ export function MainContent({
                 </section>
               )}
 
-              {(suggestedTracks.length > 0 || loadingSuggestions) && (
-                <section className="relative z-0 mt-8 pb-8">
-                  <div className="flex items-center mb-2">
-                    <h2 className="text-lg font-bold tracking-tight text-white drop-shadow-md flex items-center gap-2">
-                      <Sparkles className="w-4 h-4 text-blue-400" />
-                      {history.length > 0 ? "Suggeriti in base ai tuoi ascolti" : "Hit del momento"}
-                    </h2>
-                  </div>
-                  {loadingSuggestions ? (
-                    <div className="flex justify-center p-4">
-                      <Loader2 className="w-6 h-6 animate-spin text-blue-400" />
-                    </div>
-                  ) : (
-                    <TrackList tracks={suggestedTracks} compact={true} layoutMode="grid" />
-                  )}
-                </section>
-              )}
-
               <div className="pb-12" />
             </>
           )}
@@ -1530,18 +1269,6 @@ export function MainContent({
                   <span className="hidden md:inline">Shuffle</span>
                 </button>
                 <button
-                  className="flex items-center justify-center gap-2 px-4 h-12 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full transition-all text-blue-300 font-medium disabled:opacity-50"
-                  onClick={activatePlaylistDJ}
-                  disabled={playlistDjMixing}
-                >
-                  {playlistDjMixing ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : (
-                    <Sparkles className="w-5 h-5" />
-                  )}
-                  <span className="hidden md:inline">Gemini DJ Mix</span>
-                </button>
-                <button
                   className="w-12 h-12 flex items-center justify-center text-blue-200/60 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 backdrop-blur-md rounded-full transition-all"
                   onClick={() => setShareDialogPlaylist(currentPlaylist)}
                   title="Condividi link pubblico"
@@ -1577,92 +1304,6 @@ export function MainContent({
                 contextPlaylistId={currentPlaylist.id}
                 layoutMode={playlistLayout}
               />
-            </section>
-          )}
-
-          {currentView === "ai-dj" && (
-            <section className="relative z-0 min-h-[70vh] flex flex-col justify-start mt-4 px-4 md:px-8 max-w-7xl mx-auto w-full">
-              <div className="bg-[#121215]/80 backdrop-blur-3xl border border-white/10 rounded-[28px] md:rounded-3xl p-6 md:p-12 mb-8 shadow-2xl relative overflow-hidden flex flex-col items-center">
-                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-sky-500"></div>
-
-                <div className="flex items-center gap-4 mb-4 relative z-10">
-                  <div className="w-10 h-10 md:w-12 md:h-12 bg-gradient-to-br from-indigo-500 to-sky-400 rounded-xl flex items-center justify-center border border-white/20 shadow-lg">
-                    <Sparkles className="w-5 h-5 md:w-6 md:h-6 text-white" />
-                  </div>
-                  <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight text-white drop-shadow-sm">
-                    Gemini DJ
-                  </h1>
-                </div>
-
-                <p className="text-sm md:text-base text-blue-100/70 font-medium max-w-lg text-center mb-8 relative z-10">
-                  Spiega che atmosfera, genere o periodo vuoi ascoltare.
-                  L&apos;Intelligenza Artificiale compilerà la playlist perfetta
-                  partendo dal tuo prompt.
-                </p>
-
-                <div className="w-full max-w-2xl relative z-10">
-                  <div className="relative w-full bg-black/60 border border-white/20 rounded-[24px] shadow-inner flex flex-col md:flex-row items-stretch md:items-center focus-within:border-sky-500/50 focus-within:ring-1 focus-within:ring-sky-500/50 transition-all overflow-hidden">
-                    <div className="hidden md:flex pl-4 pr-2 text-sky-400">
-                      <Sparkles className="w-5 h-5" />
-                    </div>
-                    <textarea
-                      rows={2}
-                      placeholder="es. Synthpop anni '80 per viaggiare di notte..."
-                      className="flex-1 bg-transparent border-none p-4 md:py-4 text-white focus:outline-none placeholder-white/30 text-base md:text-lg resize-none min-h-[80px] md:min-h-0"
-                      value={aiPrompt}
-                      onChange={(e) => setAiPrompt(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey) {
-                          e.preventDefault();
-                          generateDJPlaylist();
-                        }
-                      }}
-                    />
-                    <div className="p-3 md:p-2 bg-black/20 md:bg-transparent border-t md:border-none border-white/10 flex justify-end">
-                      <button
-                        onClick={generateDJPlaylist}
-                        disabled={mixing || !aiPrompt.trim()}
-                        className="bg-white text-black hover:bg-gray-200 font-bold px-6 py-3 md:px-5 md:py-2.5 rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed w-full md:w-auto"
-                      >
-                        {mixing ? (
-                          <Loader2 className="w-5 h-5 md:w-4 md:h-4 animate-spin text-black" />
-                        ) : (
-                          <span>Genera Mix</span>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <AnimatePresence>
-                {djTracks.length > 0 && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: 20 }}
-                    className="w-full bg-[#121215]/60 backdrop-blur-2xl border border-white/10 rounded-[28px] md:rounded-3xl p-6 md:p-8 max-w-4xl mx-auto"
-                  >
-                    <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-6">
-                      <h2 className="text-xl md:text-2xl font-bold text-white flex items-center gap-2">
-                        <ListMusic className="w-5 h-5 text-sky-400" />
-                        Il tuo Mix generato
-                      </h2>
-                      <button
-                        className="h-10 md:h-11 bg-white/10 hover:bg-white/20 border border-white/10 text-white rounded-full flex items-center justify-center transition-all px-6 font-bold text-sm w-full md:w-auto"
-                        onClick={() => {
-                          setCurrentTrack(djTracks[0]);
-                          setQueue(djTracks.slice(1));
-                        }}
-                      >
-                        <Play className="w-4 h-4 mr-2" fill="currentColor" />{" "}
-                        <span>Riproduci Playlist</span>
-                      </button>
-                    </div>
-                    <TrackList tracks={djTracks} />
-                  </motion.div>
-                )}
-              </AnimatePresence>
             </section>
           )}
       </motion.div>

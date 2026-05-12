@@ -19,7 +19,7 @@ export const viewport = {
 
 export const metadata: Metadata = {
   title: 'Albify',
-  description: 'Spotify-like web app based on YouTube.',
+  description: 'Web app based on YouTube.',
   manifest: '/manifest.webmanifest',
 };
 
