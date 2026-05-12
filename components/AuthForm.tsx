@@ -72,17 +72,15 @@ export function AuthForm() {
   };
 
   return (
-    <div className="flex justify-center items-center h-screen text-white relative z-10 w-full">
+    <div className="flex justify-center items-center h-[100dvh] text-white relative z-10 w-full p-4 overflow-y-auto overscroll-y-contain">
       <div className="w-full max-w-md bg-white/5 backdrop-blur-3xl p-8 rounded-2xl border border-white/20 shadow-[0_8px_32px_rgba(0,0,0,0.37)] relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-tr from-blue-600/10 to-sky-400/10 z-[-1]" />
         
         <div className="flex flex-col items-center mb-8">
-            <div className="w-14 h-14 bg-gradient-to-br from-sky-500 to-blue-600 rounded-2xl flex items-center justify-center shadow-[0_0_20px_rgba(52,211,153,0.4)] mb-4 border border-white/20 relative">
-                <div className="absolute inset-0 bg-white/20 rounded-2xl mix-blend-overlay"></div>
-                <div className="w-[18px] h-[18px] bg-white rounded-full drop-shadow-md z-10"></div>
+            <div className="w-44 h-44 mb-4 relative drop-shadow-xl overflow-hidden rounded-2xl">
+                <img src="/assets/logo.png" alt="Logo" className="w-full h-full object-contain" />
             </div>
-            <h2 className="text-3xl font-bold tracking-tight text-center drop-shadow-md">Albify</h2>
-            <p className="text-center text-blue-300/70 font-medium uppercase tracking-widest text-xs mt-2 drop-shadow-sm">
+            <p className="text-center text-blue-300/70 font-medium uppercase tracking-widest text-sm mt-4 drop-shadow-sm">
               {isLogin ? 'Accedi Al Tuo Account' : 'Crea Un Nuovo Account'}
             </p>
         </div>

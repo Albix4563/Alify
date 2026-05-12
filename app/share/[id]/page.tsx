@@ -43,13 +43,13 @@ export default function SharedPlaylist({ params }: { params: Promise<{ id: strin
         return () => { isMounted = false; };
     }, [id, user]);
 
-    if (authLoading || loading) return <div className="h-screen w-screen flex items-center justify-center bg-transparent text-sky-400 relative z-10"><Loader2 className="w-8 h-8 animate-spin" /></div>;
+    if (authLoading || loading) return <div className="h-[100dvh] w-full flex items-center justify-center bg-transparent text-sky-400 relative z-10"><Loader2 className="w-8 h-8 animate-spin" /></div>;
     if (!user) return <AuthForm />;
-    if (!playlist) return <div className="h-screen w-screen flex flex-col items-center justify-center bg-transparent text-blue-300 gap-4 relative z-10"><h1 className="text-2xl font-bold">Playlist non trovata o privata</h1></div>;
+    if (!playlist) return <div className="h-[100dvh] w-full flex flex-col items-center justify-center bg-transparent text-blue-300 gap-4 relative z-10"><h1 className="text-2xl font-bold">Playlist non trovata o privata</h1></div>;
 
     return (
-        <div className="flex flex-col h-screen bg-transparent text-white overflow-hidden font-sans relative z-10">
-            <div className="flex-1 overflow-y-auto pb-24 p-8 max-w-5xl mx-auto w-full relative z-0">
+        <div className="flex flex-col h-[100dvh] w-full bg-transparent text-white overflow-hidden font-sans relative z-10">
+            <div className="flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain pb-24 p-8 max-w-5xl mx-auto w-full relative z-0">
                 <div className="flex items-end gap-6 mb-8 mt-4 relative z-0">
                    <div className="w-48 h-48 bg-white/5 backdrop-blur-xl shadow-2xl flex items-center justify-center rounded-2xl border border-white/20 relative overflow-hidden">
                        <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent"></div>

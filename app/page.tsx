@@ -17,7 +17,7 @@ export default function Home() {
   const [isSidebarVisible, setIsSidebarVisible] = useState(true);
 
   if (loading) {
-    return <div className="h-screen w-screen flex items-center justify-center bg-transparent text-sky-400">Caricamento...</div>;
+    return <div className="h-[100dvh] w-full flex items-center justify-center bg-transparent text-sky-400">Caricamento...</div>;
   }
 
   if (!user) {
@@ -25,8 +25,8 @@ export default function Home() {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-transparent text-white font-sans overflow-hidden relative z-10">
-      <div className="flex flex-1 overflow-hidden">
+    <div className="flex flex-col h-[100dvh] w-full bg-transparent text-white font-sans overflow-hidden relative z-10">
+      <div className="flex flex-1 overflow-hidden w-full relative">
         <Sidebar 
           currentView={currentView} 
           setCurrentView={setCurrentView}
@@ -37,7 +37,7 @@ export default function Home() {
           setIsVisible={setIsSidebarVisible}
         />
         
-        <main id="main-scroll-area" className="flex-1 bg-transparent overflow-y-auto relative z-0">
+        <main id="main-scroll-area" className="flex-1 w-full bg-transparent overflow-y-auto overflow-x-hidden relative z-0 overscroll-y-contain">
           <MainContent 
              currentView={currentView} 
              currentPlaylist={currentPlaylist}

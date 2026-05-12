@@ -1,7 +1,7 @@
 'use client';
 
 import { useAuth } from '@/lib/auth-context';
-import { Home, Search, Heart, ListMusic, Plus, PlaySquare, Sparkles, Library, PanelLeftClose } from 'lucide-react';
+import { Home, Search, Heart, ListMusic, Plus, PlaySquare, Sparkles, Library, PanelLeftClose, Download } from 'lucide-react';
 import { ReactElement, useState, useEffect } from 'react';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -28,7 +28,8 @@ export function Sidebar({ currentView, setCurrentView, currentPlaylist, setCurre
     { id: 'home', icon: Home, label: 'Pagina Iniziale' },
     { id: 'search', icon: Search, label: 'Cerca' },
     { id: 'library', icon: Library, label: 'La tua Libreria' },
-    { id: 'ai-dj', icon: Sparkles, label: 'DJ Automatico' }
+    { id: 'ai-dj', icon: Sparkles, label: 'DJ Automatico' },
+    { id: 'import', icon: Download, label: 'Importa Playlist' }
   ];
 
   return (
@@ -43,15 +44,18 @@ export function Sidebar({ currentView, setCurrentView, currentPlaylist, setCurre
         >
           <div className="absolute inset-y-0 right-0 w-[1px] bg-gradient-to-b from-transparent via-blue-500/20 to-transparent"></div>
           
-          <div className="p-6 pb-2 overflow-y-auto flex-1 custom-scrollbar z-10 w-64">
-            <div className="flex items-center gap-2.5 mb-8 justify-between">
+          <div className="p-4 pb-2 overflow-y-auto flex-1 custom-scrollbar z-10 w-64">
+            <div className="flex items-center gap-2.5 mb-4 justify-between">
               <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => setCurrentView('home')}>
-                <div className="w-8 h-8 rounded-xl flex items-center justify-center bg-gradient-to-br from-blue-500 to-sky-400 shadow-[0_0_15px_rgba(56,189,248,0.4)] flex-shrink-0 backdrop-blur-sm border border-white/20">
-                  <div className="w-[14px] h-[14px] bg-white rounded-full"></div>
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 relative overflow-hidden drop-shadow-lg">
+                  <img src="/assets/logo.png" alt="Albify" className="w-full h-full object-contain" />
                 </div>
-                <h1 className="text-xl font-bold tracking-tight text-white drop-shadow-md">Albify</h1>
               </div>
-              <button onClick={() => setIsVisible(false)} className="text-blue-200/50 hover:text-white transition-colors" title="Nascondi Sidebar">
+              <button 
+                onClick={() => setIsVisible(false)} 
+                className="text-blue-200/50 hover:text-white transition-colors" 
+                title="Nascondi Sidebar"
+              >
                 <PanelLeftClose className="w-5 h-5" />
               </button>
             </div>

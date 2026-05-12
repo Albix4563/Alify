@@ -3,7 +3,8 @@ import { useAuth } from '@/lib/auth-context';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, setDoc, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '@/lib/firestore-error';
-import { Settings, Save, AlertTriangle, Trash2, Key, History, Sparkles, Loader2, User, Shield, HardDrive, ShieldAlert } from 'lucide-react';
+import { usePlayerStore, AudioQuality } from '@/lib/store';
+import { Settings, Save, AlertTriangle, Trash2, Key, History, Sparkles, Loader2, User, Shield, HardDrive, ShieldAlert, Wifi, Zap, Volume2, Activity } from 'lucide-react';
 import { toast } from 'sonner';
 import { updateProfile, deleteUser } from 'firebase/auth';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
@@ -16,8 +17,9 @@ export function ProfileView() {
     const [nickname, setNickname] = useState('');
     const [lastChanged, setLastChanged] = useState<Date | null>(null);
     const [loading, setLoading] = useState(false);
+    const { audioQuality, setAudioQuality } = usePlayerStore();
     
-    const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean; title: string; desc: string; action: () => void; isDestructive?: boolean } | null>(null);
+    const [confirmDialog, setConfirmDialog] = useState<{ title: string; desc: string; action: () => void; isDestructive?: boolean } | null>(null);
 
     useEffect(() => {
         if (!user) return;
@@ -32,13 +34,32 @@ export function ProfileView() {
                     if (data.lastNicknameChange) {
                         setLastChanged(data.lastNicknameChange.toDate());
                     }
+                    if (data.audioQuality) {
+                        setAudioQuality(data.audioQuality as AudioQuality);
+                    }
                 }
             } catch (err) {
                  // handle silently if not exists
             }
         }
         fetchProfileData();
-    }, [user]);
+    }, [user, setAudioQuality]);
+
+    const handleSaveQuality = async (quality: AudioQuality) => {
+        if (!user) {
+            setAudioQuality(quality);
+            return;
+        }
+        
+        setAudioQuality(quality);
+        try {
+            const docRef = doc(db, 'users', user.uid);
+            await setDoc(docRef, { audioQuality: quality }, { merge: true });
+            toast.success(`Qualità audio impostata a: ${quality.charAt(0).toUpperCase() + quality.slice(1)}`);
+        } catch (error) {
+            console.error('Error updating audio quality:', error);
+        }
+    };
 
     const handleSaveNickname = async () => {
         if (!user) return;
@@ -153,11 +174,11 @@ export function ProfileView() {
         <motion.div 
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="p-6 md:p-10 pb-32 max-w-6xl mx-auto w-full relative z-10"
+            className="p-4 md:p-6 pb-32 max-w-6xl mx-auto w-full relative z-10"
         >
-            <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
-                <div className="flex items-center gap-6">
-                    <div className="w-20 h-20 md:w-28 md:h-28 rounded-full bg-gradient-to-br from-blue-500 to-sky-400 p-1 shadow-2xl relative">
+            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6 mb-8">
+                <div className="flex flex-col sm:flex-row items-center sm:items-center gap-4 sm:gap-6 text-center sm:text-left">
+                    <div className="w-24 h-24 sm:w-20 sm:h-20 md:w-28 md:h-28 rounded-full bg-gradient-to-br from-blue-500 to-sky-400 p-1 shadow-2xl relative shrink-0">
                          <div className="w-full h-full bg-[#111] rounded-full flex items-center justify-center overflow-hidden border-2 border-transparent">
                              {user?.photoURL ? (
                                 <img src={user.photoURL} alt="Avatar" className="w-full h-full object-cover" />
@@ -168,34 +189,34 @@ export function ProfileView() {
                              )}
                          </div>
                     </div>
-                    <div>
-                        <h1 className="text-3xl md:text-5xl font-extrabold text-white tracking-tight drop-shadow-md">
+                    <div className="overflow-hidden max-w-full flex flex-col items-center sm:items-start">
+                        <h1 className="text-2xl sm:text-3xl md:text-5xl font-extrabold text-white tracking-tight drop-shadow-md truncate max-w-full">
                             {user?.displayName || 'Profilo'}
                         </h1>
-                        <p className="text-blue-300/70 text-sm md:text-base font-medium mt-2 bg-black/20 px-3 py-1 rounded-full inline-flex border border-white/5">
+                        <p className="text-blue-300/70 text-xs sm:text-sm md:text-base font-medium mt-2 bg-black/20 px-3 py-1.5 rounded-full inline-flex border border-white/5 truncate max-w-full">
                             {user?.email}
                         </p>
                     </div>
                 </div>
             </div>
 
-            <Tabs defaultValue="general" className="w-full">
-                <TabsList className="bg-black/40 border border-white/10 p-1 rounded-2xl mb-8 flex overflow-x-auto no-scrollbar justify-start">
-                    <TabsTrigger value="general" className="rounded-xl px-6 py-3 data-[state=active]:bg-white/10 data-[state=active]:text-white text-blue-200/60 font-medium transition-all flex items-center gap-2">
-                        <User className="w-4 h-4" /> Generale
+            <Tabs defaultValue="general" className="w-full flex-col">
+                <TabsList className="bg-black/40 border border-white/10 p-2 rounded-3xl mb-8 flex flex-col md:flex-row h-auto w-full justify-start gap-2 shadow-inner">
+                    <TabsTrigger value="general" className="rounded-xl px-6 py-4 md:py-3 w-full md:w-auto after:hidden data-active:bg-white/10 data-active:text-white !text-blue-200/60 data-active:!text-white font-medium transition-all flex items-center justify-center md:justify-start gap-2 border-none ring-0 focus-visible:ring-0 focus-visible:outline-none dark:data-active:bg-white/10 dark:data-active:border-none !shadow-none">
+                        <User className="w-5 h-5 md:w-4 md:h-4" /> Generale
                     </TabsTrigger>
-                    <TabsTrigger value="data" className="rounded-xl px-6 py-3 data-[state=active]:bg-white/10 data-[state=active]:text-white text-blue-200/60 font-medium transition-all flex items-center gap-2">
-                        <HardDrive className="w-4 h-4" /> Dati e Cronologia
+                    <TabsTrigger value="data" className="rounded-xl px-6 py-4 md:py-3 w-full md:w-auto after:hidden data-active:bg-white/10 data-active:text-white !text-blue-200/60 data-active:!text-white font-medium transition-all flex items-center justify-center md:justify-start gap-2 border-none ring-0 focus-visible:ring-0 focus-visible:outline-none dark:data-active:bg-white/10 dark:data-active:border-none !shadow-none">
+                        <HardDrive className="w-5 h-5 md:w-4 md:h-4" /> Dati e Cronologia
                     </TabsTrigger>
-                    <TabsTrigger value="security" className="rounded-xl px-6 py-3 data-[state=active]:bg-white/10 data-[state=active]:text-red-400 text-blue-200/60 font-medium transition-all flex items-center gap-2">
-                        <ShieldAlert className="w-4 h-4" /> Sicurezza Account
+                    <TabsTrigger value="security" className="rounded-xl px-6 py-4 md:py-3 w-full md:w-auto after:hidden data-active:bg-red-500/20 data-active:text-red-400 !text-blue-200/60 data-active:!text-red-400 font-medium transition-all flex items-center justify-center md:justify-start gap-2 border-none ring-0 focus-visible:ring-0 focus-visible:outline-none dark:data-active:bg-red-500/20 dark:data-active:border-none !shadow-none">
+                        <ShieldAlert className="w-5 h-5 md:w-4 md:h-4" /> Sicurezza Account
                     </TabsTrigger>
                 </TabsList>
 
                 {/* --- TAB GENERALE --- */}
                 <TabsContent value="general" className="space-y-6">
-                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-[#121215]/80 border border-white/10 rounded-3xl p-8 backdrop-blur-xl shadow-lg">
-                        <div className="flex items-center gap-3 mb-8">
+                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-[#121215]/80 border border-white/10 rounded-[28px] md:rounded-3xl p-6 md:p-8 backdrop-blur-xl shadow-lg">
+                        <div className="flex items-center gap-3 mb-6 md:mb-8">
                             <div className="w-10 h-10 rounded-full bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
                                 <Key className="w-5 h-5 text-blue-400" />
                             </div>
@@ -211,13 +232,13 @@ export function ProfileView() {
                                     type="text" 
                                     value={nickname}
                                     onChange={(e) => setNickname(e.target.value)}
-                                    className="flex-1 bg-black/60 border border-white/10 rounded-xl px-5 py-4 text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all placeholder-white/20 shadow-inner"
+                                    className="flex-1 bg-black/60 border border-white/10 rounded-xl px-4 py-4 md:px-5 text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all placeholder-white/20 shadow-inner"
                                     placeholder="Il tuo nickname"
                                 />
                                 <button 
                                     onClick={handleSaveNickname}
                                     disabled={loading || nickname === user?.displayName}
-                                    className="bg-white/10 hover:bg-white/20 text-white border border-white/10 px-8 py-4 rounded-xl font-bold transition-all flex items-center justify-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                                    className="bg-white/10 hover:bg-white/20 text-white border border-white/10 px-6 py-4 md:px-8 rounded-xl font-bold transition-all flex items-center justify-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
                                 >
                                     {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
                                     Salva Nickname
@@ -229,50 +250,90 @@ export function ProfileView() {
                             </p>
                         </div>
                     </motion.div>
+
+                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-[#121215]/80 border border-white/10 rounded-[28px] md:rounded-3xl p-6 md:p-8 backdrop-blur-xl shadow-lg mt-6">
+                        <div className="flex items-center gap-3 mb-6 md:mb-8">
+                            <div className="w-10 h-10 rounded-full bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
+                                <Activity className="w-5 h-5 text-blue-400" />
+                            </div>
+                            <div>
+                                <h2 className="text-xl font-bold text-white tracking-tight">Qualità Audio e Video</h2>
+                                <p className="text-sm text-blue-200/60">Configura la qualità in base alla tua connessione.</p>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                            {[
+                                { id: 'basso', label: 'Basso', icon: Wifi, desc: 'Connessione debole, video 360p, audio standard.' },
+                                { id: 'medio', label: 'Medio', icon: Zap, desc: 'Default. Connessione buona, video 720p.' },
+                                { id: 'alto', label: 'Alto', icon: Volume2, desc: 'Connessione ottima, video 1080p, audio HQ.' },
+                                { id: 'auto', label: 'Auto', icon: Sparkles, desc: 'Adattamento automatico (Medio → Basso).' },
+                            ].map((q) => (
+                                <button
+                                    key={q.id}
+                                    onClick={() => handleSaveQuality(q.id as AudioQuality)}
+                                    className={`flex flex-col p-5 rounded-[20px] border transition-all text-left group ${
+                                        audioQuality === q.id 
+                                        ? 'bg-blue-500/10 border-blue-500/50 ring-2 ring-blue-500/20' 
+                                        : 'bg-black/40 border-white/5 hover:border-white/20'
+                                    }`}
+                                >
+                                    <div className="flex items-center justify-between mb-3">
+                                        <div className={`p-2 rounded-xl ${audioQuality === q.id ? 'bg-blue-500 text-white' : 'bg-white/5 text-blue-200/60 group-hover:text-blue-200'}`}>
+                                            <q.icon className="w-5 h-5" />
+                                        </div>
+                                        {audioQuality === q.id && <div className="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,1)]" />}
+                                    </div>
+                                    <h3 className={`font-bold ${audioQuality === q.id ? 'text-white' : 'text-blue-100/70'}`}>{q.label}</h3>
+                                    <p className="text-[11px] text-blue-200/40 mt-1 leading-tight">{q.desc}</p>
+                                </button>
+                            ))}
+                        </div>
+                    </motion.div>
                 </TabsContent>
 
                 {/* --- TAB DATI E CRONOLOGIA --- */}
                 <TabsContent value="data" className="space-y-6">
-                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                        <div className="bg-[#121215]/80 hover:bg-[#18181c] transition-colors border border-white/10 rounded-3xl p-8 flex flex-col shadow-sm backdrop-blur-xl">
-                            <div className="p-3 bg-blue-500/10 rounded-2xl w-fit mb-5 border border-blue-500/20"><History className="text-blue-400 w-6 h-6" /></div>
-                            <h3 className="font-bold text-white text-lg mb-2 tracking-tight">Cronologia Ascolti</h3>
-                            <p className="text-sm text-blue-200/60 mb-8 flex-1 leading-relaxed">Rimuovi la traccia di tutti i brani che hai riprodotto finora sulla piattaforma.</p>
+                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6">
+                        <div className="bg-[#121215]/80 hover:bg-[#18181c] transition-colors border border-white/10 rounded-[24px] md:rounded-3xl p-6 md:p-8 flex flex-col shadow-sm backdrop-blur-xl">
+                            <div className="p-3 bg-blue-500/10 rounded-2xl w-fit mb-4 md:mb-5 border border-blue-500/20"><History className="text-blue-400 w-6 h-6" /></div>
+                            <h3 className="font-bold text-white text-base md:text-lg mb-2 tracking-tight">Cronologia Ascolti</h3>
+                            <p className="text-sm text-blue-200/60 mb-6 md:mb-8 flex-1 leading-relaxed">Rimuovi la traccia di tutti i brani che hai riprodotto finora sulla piattaforma.</p>
                             <button onClick={() => setConfirmDialog({
                                 title: 'Svuota Cronologia',
                                 desc: 'Sei sicuro di voler eliminare la tua cronologia degli ascolti? L\'azione è irreversibile.',
                                 action: deleteHistory
-                            })} className="text-white hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 px-4 py-3 rounded-xl text-sm font-bold transition-all w-full text-center">Svuota Cronologia</button>
+                            })} className="text-white hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 px-4 py-3 md:py-4 rounded-xl text-sm md:text-base font-bold transition-all w-full text-center">Svuota Cronologia</button>
                         </div>
                         
-                        <div className="bg-[#121215]/80 hover:bg-[#18181c] transition-colors border border-white/10 rounded-3xl p-8 flex flex-col shadow-sm backdrop-blur-xl">
-                            <div className="p-3 bg-purple-500/10 rounded-2xl w-fit mb-5 border border-purple-500/20"><Sparkles className="text-purple-400 w-6 h-6" /></div>
-                            <h3 className="font-bold text-white text-lg mb-2 tracking-tight">Memoria Intelligenza Artificiale</h3>
-                            <p className="text-sm text-blue-200/60 mb-8 flex-1 leading-relaxed">Cancella i tuoi preferiti. L&apos;IA dimenticherà i tuoi gusti e non ti consiglierà brani simili a quelli attuali.</p>
+                        <div className="bg-[#121215]/80 hover:bg-[#18181c] transition-colors border border-white/10 rounded-[24px] md:rounded-3xl p-6 md:p-8 flex flex-col shadow-sm backdrop-blur-xl">
+                            <div className="p-3 bg-purple-500/10 rounded-2xl w-fit mb-4 md:mb-5 border border-purple-500/20"><Sparkles className="text-purple-400 w-6 h-6" /></div>
+                            <h3 className="font-bold text-white text-base md:text-lg mb-2 tracking-tight">Memoria Intelligenza Artificiale</h3>
+                            <p className="text-sm text-blue-200/60 mb-6 md:mb-8 flex-1 leading-relaxed">Cancella i tuoi preferiti. L&apos;IA dimenticherà i tuoi gusti e non ti consiglierà brani simili a quelli attuali.</p>
                             <button onClick={() => setConfirmDialog({
                                 title: 'Reset Memoria IA',
                                 desc: 'Eliminando le tue preferenze, i consigli IA ripartiranno da zero. Procedere?',
                                 action: deleteAIMemory
-                            })} className="text-white hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 px-4 py-3 rounded-xl text-sm font-bold transition-all w-full text-center">Azzera Memoria IA</button>
+                            })} className="text-white hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 px-4 py-3 md:py-4 rounded-xl text-sm md:text-base font-bold transition-all w-full text-center">Azzera Memoria IA</button>
                         </div>
                         
-                        <div className="bg-[#121215]/80 hover:bg-[#18181c] transition-colors border border-white/10 rounded-3xl p-8 flex flex-col shadow-sm backdrop-blur-xl">
-                            <div className="p-3 bg-orange-500/10 rounded-2xl w-fit mb-5 border border-orange-500/20"><Settings className="text-orange-400 w-6 h-6" /></div>
-                            <h3 className="font-bold text-white text-lg mb-2 tracking-tight">Tutte le Playlist</h3>
-                            <p className="text-sm text-blue-200/60 mb-8 flex-1 leading-relaxed">Elimina in modo definitivo tutte le tue raccolte e compilation create in precedenza.</p>
+                        <div className="bg-[#121215]/80 hover:bg-[#18181c] transition-colors border border-white/10 rounded-[24px] md:rounded-3xl p-6 md:p-8 flex flex-col shadow-sm backdrop-blur-xl">
+                            <div className="p-3 bg-orange-500/10 rounded-2xl w-fit mb-4 md:mb-5 border border-orange-500/20"><Settings className="text-orange-400 w-6 h-6" /></div>
+                            <h3 className="font-bold text-white text-base md:text-lg mb-2 tracking-tight">Tutte le Playlist</h3>
+                            <p className="text-sm text-blue-200/60 mb-6 md:mb-8 flex-1 leading-relaxed">Elimina in modo definitivo tutte le tue raccolte e compilation create in precedenza.</p>
                             <button onClick={() => setConfirmDialog({
                                 title: 'Elimina Tutto',
                                 desc: 'Attenzione: stai per eliminare permanentemente tutte le tue playlist.',
                                 action: deletePlaylists,
                                 isDestructive: true
-                            })} className="text-orange-400 hover:bg-orange-500/10 border border-orange-500/20 px-4 py-3 rounded-xl text-sm font-bold transition-all w-full text-center">Elimina Playlist</button>
+                            })} className="text-orange-400 hover:bg-orange-500/10 border border-orange-500/20 px-4 py-3 md:py-4 rounded-xl text-sm md:text-base font-bold transition-all w-full text-center">Elimina Playlist</button>
                         </div>
                     </motion.div>
                 </TabsContent>
 
                 {/* --- TAB SICUREZZA --- */}
                 <TabsContent value="security" className="space-y-6">
-                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-red-500/5 backdrop-blur-xl border border-red-500/20 rounded-3xl p-8 max-w-2xl">
+                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-red-500/5 backdrop-blur-xl border border-red-500/20 rounded-[28px] md:rounded-3xl p-6 md:p-8 max-w-2xl">
                         <div className="flex items-center gap-3 mb-6">
                             <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center border border-red-500/20">
                                 <AlertTriangle className="w-6 h-6 text-red-500" />

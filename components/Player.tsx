@@ -1,7 +1,7 @@
 'use client';
 
-import { usePlayerStore, Track } from '@/lib/store';
-import { Pause, Play, SkipForward, Repeat, Repeat1, Shuffle, Maximize2, Minimize2, Loader2, Sparkles, ChevronDown } from 'lucide-react';
+import { usePlayerStore, Track, AudioQuality } from '@/lib/store';
+import { Pause, Play, SkipForward, Repeat, Repeat1, Shuffle, Maximize2, Minimize2, Loader2, Sparkles, ChevronDown, Activity } from 'lucide-react';
 import ReactPlayer from 'react-youtube';
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { GoogleGenAI, Type } from '@google/genai';
@@ -13,7 +13,7 @@ import { motion, AnimatePresence } from 'motion/react';
 
 export function Player() {
   const { user } = useAuth();
-  const { currentTrack, isPlaying, setIsPlaying, playNext, loopMode, setLoopMode, shuffleMode, setShuffleMode, videoExpanded, setVideoExpanded, autoDJMode, setAutoDJMode, queue, setQueue } = usePlayerStore();
+  const { currentTrack, isPlaying, setIsPlaying, playNext, loopMode, setLoopMode, shuffleMode, setShuffleMode, videoExpanded, setVideoExpanded, autoDJMode, setAutoDJMode, queue, setQueue, audioQuality } = usePlayerStore();
   const playerRef = useRef<any>(null);
   const [isReady, setIsReady] = useState(false);
   const [isFetchingDJ, setIsFetchingDJ] = useState(false);
@@ -24,6 +24,12 @@ export function Player() {
   const [scrollingDown, setScrollingDown] = useState(false);
   const [lastY, setLastY] = useState(0);
   const [isMobile, setIsMobile] = useState(false);
+  const [seekAnimation, setSeekAnimation] = useState<'forward' | 'backward' | null>(null);
+
+  const triggerSeekAnimation = (type: 'forward' | 'backward') => {
+      setSeekAnimation(type);
+      setTimeout(() => setSeekAnimation(null), 500);
+  };
 
   useEffect(() => {
       const handleResize = () => setIsMobile(window.innerWidth < 768);
@@ -66,18 +72,98 @@ export function Player() {
     }
   }, [currentTrack, user]);
 
+  const safePlayerCall = async (method: string, args: any[] = []) => {
+    try {
+      const p = playerRef.current?.internalPlayer || playerRef.current?.getInternalPlayer?.();
+      if (p && typeof p[method] === 'function') {
+        return await p[method](...args);
+      }
+    } catch (e) {
+      console.warn(`SafePlayerCall ${method} error:`, e);
+    }
+  };
+
+  useEffect(() => {
+    const applyQuality = async () => {
+      if (!isReady) return;
+      
+      let target = 'default';
+      const connection = (navigator as any).connection;
+
+      if (audioQuality === 'basso') {
+        target = 'medium'; // 360p
+      } else if (audioQuality === 'medio') {
+        target = 'hd720';
+      } else if (audioQuality === 'alto') {
+        target = 'hd1080';
+      } else if (audioQuality === 'auto') {
+        if (connection) {
+          const type = connection.effectiveType;
+          // In "auto", we default to "medio" and downgrade to "basso" if connection is poor
+          if (type === '4g') {
+            target = 'hd720';
+          } else {
+            target = 'medium';
+          }
+        } else {
+          target = 'hd720'; // Default is Medium for Auto
+        }
+      }
+
+      await safePlayerCall('setPlaybackQuality', [target]);
+    };
+
+    applyQuality();
+
+    // Listen for connection changes in Auto mode
+    const connection = (navigator as any).connection;
+    if (audioQuality === 'auto' && connection) {
+      const handleConnectionChange = () => {
+         applyQuality();
+      };
+      connection.addEventListener('change', handleConnectionChange);
+      return () => connection.removeEventListener('change', handleConnectionChange);
+    }
+  }, [audioQuality, isReady, currentTrack?.videoId]);
+
   const handleNext = useCallback(async () => {
     if (loopMode === 'one' && playerRef.current) {
-        playerRef.current.internalPlayer.seekTo(0);
-        playerRef.current.internalPlayer.playVideo();
+        await safePlayerCall('seekTo', [0]);
+        await safePlayerCall('playVideo');
         return;
     }
 
     if (queue.length === 0 && autoDJMode && currentTrack) {
         setIsFetchingDJ(true);
         try {
+            let playlistContext = '';
+            if (user) {
+                try {
+                    const { getDocs, query, collection, where } = await import('firebase/firestore');
+                    const q = query(collection(db, 'playlists'), where('ownerId', '==', user.uid));
+                    const snapshot = await getDocs(q);
+                    let allUserTracks: string[] = [];
+                    for (const docSnap of snapshot.docs) {
+                        const tracksQ = query(collection(db, 'playlists', docSnap.id, 'tracks'));
+                        const tracksSnap = await getDocs(tracksQ);
+                        tracksSnap.forEach(tDoc => {
+                            const data = tDoc.data();
+                            if (data.title && data.channelTitle) {
+                                allUserTracks.push(`${data.title} by ${data.channelTitle}`);
+                            }
+                        });
+                    }
+                    if (allUserTracks.length > 0) {
+                        const sampled = allUserTracks.sort(() => 0.5 - Math.random()).slice(0, 30);
+                        playlistContext = `\n\nFor reference, my personal playlists contain these tracks:\n- ${sampled.join('\n- ')}\n\nIMPORTANT: Choose 2 or 3 tracks directly from my personal playlists listed above, and for the remaining ones, suggest your own tracks. Ensure all tracks fit the musical style, genre, and mood of "${currentTrack.title}".`;
+                    }
+                } catch (err) {
+                    console.error('Error fetching playlists context:', err);
+                }
+            }
+
             const ai = new GoogleGenAI({ apiKey: process.env.NEXT_PUBLIC_GEMINI_API_KEY });
-            const prompt = `I just finished listening to "${currentTrack.title}" by ${currentTrack.channelTitle}. Suggest 5 new YouTube search queries (artist and song name) that fit exactly in the same musical style, genre, and mood to continue the mix automatically. Prefer Italian or European tracks if the original track is Italian (e.g. Shiva, Sfera Ebbasta, etc). Return a JSON array of strings.`;
+            const prompt = `I just finished listening to "${currentTrack.title}" by ${currentTrack.channelTitle}. Suggest 5 new YouTube search queries (artist and song name) to continue the mix automatically.${playlistContext}\n\nPrefer Italian or European tracks if the original track is Italian. Return a JSON array of strings.`;
             const response = await ai.models.generateContent({
                model: "gemini-2.5-flash",
                contents: prompt,
@@ -91,8 +177,12 @@ export function Player() {
                 try {
                     const res = await fetch(`/api/youtube/search?q=${encodeURIComponent(query)}`);
                     if (!res.ok) return null;
-                    const data = await res.json();
-                    return data.items && data.items.length > 0 ? data.items[0] : null;
+                    const contentType = res.headers.get("content-type");
+                    if (contentType && contentType.includes("application/json")) {
+                        const data = await res.json();
+                        return data.items && data.items.length > 0 ? data.items[0] : null;
+                    }
+                    return null;
                 } catch (err) {
                     return null;
                 }
@@ -106,9 +196,13 @@ export function Player() {
                  }));
                  setQueue(tracks);
             }
-        } catch (e) {
+        } catch (e: any) {
             console.error('AutoDJ Error:', e);
-            toast.error('Errore durante la generazione dei brani tramite AutoDJ.');
+            if (e?.status === 429 || e?.message?.includes('429') || e?.message?.includes('quota') || (e?.error?.code === 429) || e?.message?.includes('RESOURCE_EXHAUSTED')) {
+                toast.error('Limite IA superato per AutoDJ.', { duration: 5000 });
+            } else {
+                toast.error('Errore durante la generazione dei brani tramite AutoDJ.');
+            }
         } finally {
             setIsFetchingDJ(false);
             playNext();
@@ -116,7 +210,7 @@ export function Player() {
     } else {
         playNext();
     }
-  }, [loopMode, queue.length, autoDJMode, currentTrack, playNext, setQueue]);
+  }, [loopMode, queue.length, autoDJMode, currentTrack, playNext, setQueue, user]);
 
   useEffect(() => {
     if (currentTrack && 'mediaSession' in navigator) {
@@ -133,12 +227,10 @@ export function Player() {
 
   const togglePlayPause = () => {
     setIsPlaying(!isPlaying);
-    if (playerRef.current) {
-        if (!isPlaying) {
-             playerRef.current.internalPlayer.playVideo();
-        } else {
-             playerRef.current.internalPlayer.pauseVideo();
-        }
+    if (!isPlaying) {
+         safePlayerCall('playVideo');
+    } else {
+         safePlayerCall('pauseVideo');
     }
   };
 
@@ -147,8 +239,8 @@ export function Player() {
      // We only sync play state on explicit UI triggers (via togglePlayPause),
      // but we can also have a strict check to ensure it doesn't get out of sync, safely ignoring videoId changes.
      if (isReady && playerRef.current) {
-         if (isPlaying) playerRef.current.internalPlayer.playVideo();
-         else playerRef.current.internalPlayer.pauseVideo();
+         if (isPlaying) safePlayerCall('playVideo');
+         else safePlayerCall('pauseVideo');
      }
   }, [isPlaying]);
 
@@ -157,8 +249,8 @@ export function Player() {
     if (isPlaying && isReady && playerRef.current && !isSeeking) {
       interval = setInterval(async () => {
         try {
-          const time = await playerRef.current.internalPlayer.getCurrentTime();
-          const dur = await playerRef.current.internalPlayer.getDuration();
+          const time = await safePlayerCall('getCurrentTime');
+          const dur = await safePlayerCall('getDuration');
           if(time !== undefined) setCurrentTime(time);
           if(dur !== undefined && dur > 0 && duration === 0) setDuration(dur);
         } catch (e) {}
@@ -173,9 +265,7 @@ export function Player() {
   };
 
   const handleSeekCommit = () => {
-    if (playerRef.current) {
-        playerRef.current.internalPlayer.seekTo(currentTime);
-    }
+    safePlayerCall('seekTo', [currentTime]);
     setIsSeeking(false);
   };
 
@@ -270,24 +360,48 @@ export function Player() {
 
               {/* Gesture overlay for Double Tap to Seek */}
               <div className="absolute inset-x-0 top-20 bottom-[30vh] z-[101] flex">
-                  <div className="flex-1 flex items-center justify-center opacity-0 hover:opacity-10 active:opacity-20 transition-opacity bg-white" 
+                  <div className="flex-1 flex items-center justify-center transition-opacity" 
                        onDoubleClick={() => {
-                           if(playerRef.current) {
-                               const newTime = Math.max(0, currentTime - 10);
-                               playerRef.current.internalPlayer.seekTo(newTime);
-                               setCurrentTime(newTime);
-                           }
+                           const newTime = Math.max(0, currentTime - 10);
+                           safePlayerCall('seekTo', [newTime]);
+                           setCurrentTime(newTime);
+                           triggerSeekAnimation('backward');
                        }} 
-                  />
-                  <div className="flex-1 flex items-center justify-center opacity-0 hover:opacity-10 active:opacity-20 transition-opacity bg-white" 
+                  >
+                      <AnimatePresence>
+                          {seekAnimation === 'backward' && (
+                              <motion.div 
+                                  initial={{ opacity: 0, scale: 0.5, x: 20 }}
+                                  animate={{ opacity: 1, scale: 1, x: 0 }}
+                                  exit={{ opacity: 0, scale: 1.5, x: -20 }}
+                                  className="w-16 h-16 bg-black/40 rounded-full flex items-center justify-center backdrop-blur-md"
+                              >
+                                  <SkipForward className="w-8 h-8 text-white rotate-180" />
+                              </motion.div>
+                          )}
+                      </AnimatePresence>
+                  </div>
+                  <div className="flex-1 flex items-center justify-center transition-opacity" 
                        onDoubleClick={() => {
-                           if(playerRef.current) {
-                               const newTime = Math.min(duration, currentTime + 10);
-                               playerRef.current.internalPlayer.seekTo(newTime);
-                               setCurrentTime(newTime);
-                           }
+                           const newTime = Math.min(duration, currentTime + 10);
+                           safePlayerCall('seekTo', [newTime]);
+                           setCurrentTime(newTime);
+                           triggerSeekAnimation('forward');
                        }} 
-                  />
+                  >
+                      <AnimatePresence>
+                          {seekAnimation === 'forward' && (
+                              <motion.div 
+                                  initial={{ opacity: 0, scale: 0.5, x: -20 }}
+                                  animate={{ opacity: 1, scale: 1, x: 0 }}
+                                  exit={{ opacity: 0, scale: 1.5, x: 20 }}
+                                  className="w-16 h-16 bg-black/40 rounded-full flex items-center justify-center backdrop-blur-md"
+                              >
+                                  <SkipForward className="w-8 h-8 text-white" />
+                              </motion.div>
+                          )}
+                      </AnimatePresence>
+                  </div>
               </div>
 
               <div className="flex flex-col justify-end w-full mt-auto mb-0 z-[102] pt-10">
@@ -356,8 +470,8 @@ export function Player() {
       <motion.div 
          initial={false}
          animate={{
-            y: isMobileExpanded ? 0 : (isMobile ? (scrollingDown ? 0 : -76) : 0),
-            scale: isMobile && scrollingDown ? 1.02 : 1,
+            y: isMobileExpanded ? 0 : (isMobile ? (scrollingDown ? 76 : 0) : 0),
+            scale: isMobile && scrollingDown ? 0.95 : 1,
             x: 0 // reset x
          }}
          drag={isMobile && !isMobileExpanded ? "x" : false}
@@ -371,7 +485,7 @@ export function Player() {
             }
          }}
          transition={{ type: "spring", stiffness: 400, damping: 25, mass: 1 }}
-         className={`fixed z-50 left-3 right-3 bottom-6 md:left-1/2 md:right-auto md:-translate-x-1/2 md:w-[760px] bg-black/60 backdrop-blur-3xl border border-white/20 rounded-[28px] shadow-[0_8px_30px_rgb(0,0,0,0.6)] flex flex-col transition-opacity duration-300 ${isMobileExpanded ? 'opacity-0 pointer-events-none' : 'opacity-100 pointer-events-auto'}`}
+         className={`fixed z-50 left-3 right-3 bottom-[96px] md:bottom-6 md:left-1/2 md:right-auto md:-translate-x-1/2 md:w-[760px] bg-black/60 backdrop-blur-3xl border border-white/20 rounded-[28px] shadow-[0_8px_30px_rgb(0,0,0,0.6)] flex flex-col transition-opacity duration-300 ${isMobileExpanded ? 'opacity-0 pointer-events-none' : 'opacity-100 pointer-events-auto'}`}
          onClick={(e) => {
              if (window.innerWidth < 768 && (e.target as HTMLElement).closest('.player-footer-clickable')) {
                  setIsMobileExpanded(true);

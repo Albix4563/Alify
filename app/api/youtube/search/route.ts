@@ -23,22 +23,27 @@ export async function GET(request: Request) {
              // Fallback to Piped API
              const pipedRes = await fetch(`https://pipedapi.kavin.rocks/search?q=${encodeURIComponent(q)}&filter=all`);
              if (pipedRes.ok) {
-                 const pipedData = await pipedRes.json();
-                 const items = pipedData.items.filter((item: any) => item.type === 'stream').map((item: any) => {
-                     const videoId = item.url.replace('/watch?v=', '');
-                     return {
-                         id: { videoId },
-                         snippet: {
-                             title: item.title,
-                             channelTitle: item.uploaderName,
-                             thumbnails: {
-                                 high: { url: item.thumbnail },
-                                 default: { url: item.thumbnail }
+                 const contentType = pipedRes.headers.get('content-type');
+                 if (contentType && contentType.includes('application/json')) {
+                     const pipedData = await pipedRes.json();
+                     const items = pipedData.items.filter((item: any) => item.type === 'stream').map((item: any) => {
+                         const videoId = item.url.replace('/watch?v=', '');
+                         return {
+                             id: { videoId },
+                             snippet: {
+                                 title: item.title,
+                                 channelTitle: item.uploaderName,
+                                 thumbnails: {
+                                     high: { url: item.thumbnail },
+                                     default: { url: item.thumbnail }
+                                 }
                              }
-                         }
-                     };
-                 });
-                 return NextResponse.json({ items });
+                         };
+                     });
+                     return NextResponse.json({ items });
+                 } else {
+                     console.error("Fallback API returned non-JSON response");
+                 }
              }
          } catch (fallbackError) {
              console.error("Fallback API also failed:", fallbackError);
