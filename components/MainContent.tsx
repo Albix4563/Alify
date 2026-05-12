@@ -30,7 +30,6 @@ import {
   LayoutGrid,
   List,
   Trash2,
-  Home,
   History,
   Download,
 } from "lucide-react";
@@ -51,7 +50,6 @@ import {
 import { toast } from "sonner";
 import { ProfileView } from "./ProfileView";
 import { ImportView } from "./ImportView";
-import { Menu } from "lucide-react";
 
 export function MainContent({
   currentView,
@@ -60,8 +58,6 @@ export function MainContent({
   createPlaylistDialog,
   setCreatePlaylistDialog,
   setCurrentPlaylist,
-  isSidebarVisible,
-  setIsSidebarVisible,
 }: any) {
   const { user } = useAuth();
   const { setCurrentTrack, setQueue, setAudioQuality } = usePlayerStore();
@@ -974,69 +970,9 @@ export function MainContent({
     );
   };
 
-  const navItems = [
-    { id: "home", label: "Home", icon: Home },
-    { id: "search", label: "Cerca", icon: Search },
-    { id: "library", label: "Libreria", icon: Library },
-    { id: "ai-dj", label: "Ai DJ", icon: Sparkles },
-    { id: "import", label: "Importa", icon: Download },
-  ];
-
   return (
     <div className="p-4 md:p-6 pb-32">
-      <header className="flex justify-between items-center mb-2 sticky top-0 bg-transparent z-10 py-2 -mx-4 px-4 md:-mx-6 md:px-6 gap-4">
-        {/* No background bar here as requested */}
-
-        <div className="relative flex items-center gap-4 z-10 w-[100px]">
-          {!isSidebarVisible && (
-            <button
-              onClick={() => setIsSidebarVisible(true)}
-              className="hidden md:flex p-2 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 transition-colors text-white h-10 w-10 shrink-0 items-center justify-center"
-            >
-              <Menu className="w-5 h-5" />
-            </button>
-          )}
-        </div>
-
-        <AnimatePresence>
-          {!isSidebarVisible && (
-            <motion.nav
-              initial={{ opacity: 0, y: -20, scale: 0.9 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -20, scale: 0.9 }}
-              transition={{ type: "spring", stiffness: 400, damping: 25 }}
-              className="relative z-10 hidden md:flex items-center gap-2 bg-black/40 backdrop-blur-3xl border border-white/10 p-1.5 rounded-full shadow-[0_8px_30px_rgb(0,0,0,0.4)] absolute left-1/2 -translate-x-1/2"
-            >
-              {navItems.map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => setCurrentView(item.id)}
-                  className={`relative px-4 py-2 text-sm font-bold rounded-full transition-colors flex items-center gap-2 ${currentView === item.id ? "text-white" : "text-blue-200/60 hover:text-white"}`}
-                >
-                  {currentView === item.id && (
-                    <motion.div
-                      layoutId="topNavIndicator"
-                      className="absolute inset-0 bg-white/10 rounded-full"
-                      transition={{
-                        type: "spring",
-                        stiffness: 400,
-                        damping: 25,
-                      }}
-                    />
-                  )}
-                  <item.icon className="w-4 h-4 relative z-10" />
-                  <span className="relative z-10">{item.label}</span>
-                </button>
-              ))}
-            </motion.nav>
-          )}
-        </AnimatePresence>
-
-        <div
-          hidden={!isSidebarVisible}
-          className="hidden md:block w-[100px]"
-        ></div>
-      </header>
+      <div className="mb-2 py-2" />
 
       <Dialog
         open={createPlaylistDialog}
@@ -1165,15 +1101,13 @@ export function MainContent({
         </DialogContent>
       </Dialog>
 
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={currentView}
-          initial={{ opacity: 0, y: 20, filter: "blur(10px)" }}
-          animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-          exit={{ opacity: 0, y: -20, filter: "blur(10px)" }}
-          transition={{ duration: 0.4, type: "spring", bounce: 0.2 }}
-          className="w-full relative z-0"
-        >
+      <motion.div
+        key={currentView}
+        initial={{ opacity: 0, y: 12, filter: "blur(6px)" }}
+        animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+        transition={{ duration: 0.25, type: "spring", bounce: 0.15 }}
+        className="w-full relative z-0"
+      >
           {currentView === "profile" && <ProfileView />}
           <ImportView currentView={currentView} userPlaylists={userPlaylists} setCurrentView={setCurrentView} />
 
@@ -1731,8 +1665,7 @@ export function MainContent({
               </AnimatePresence>
             </section>
           )}
-        </motion.div>
-      </AnimatePresence>
+      </motion.div>
     </div>
   );
 }
