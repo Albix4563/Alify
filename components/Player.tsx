@@ -25,10 +25,19 @@ export function Player() {
   const [lastY, setLastY] = useState(0);
   const [isMobile, setIsMobile] = useState(false);
   const [seekAnimation, setSeekAnimation] = useState<'forward' | 'backward' | null>(null);
+  const [miniSwipeFeedback, setMiniSwipeFeedback] = useState<'next' | 'rewind' | null>(null);
 
   const triggerSeekAnimation = (type: 'forward' | 'backward') => {
       setSeekAnimation(type);
       setTimeout(() => setSeekAnimation(null), 500);
+  };
+
+  const triggerMiniSwipeFeedback = (type: 'next' | 'rewind') => {
+      setMiniSwipeFeedback(type);
+      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+          navigator.vibrate(15);
+      }
+      setTimeout(() => setMiniSwipeFeedback(null), 450);
   };
 
   useEffect(() => {
@@ -65,8 +74,15 @@ export function Player() {
         }
     }
     if (user && currentTrack) {
-        setDoc(doc(db, 'users', user.uid, 'history', currentTrack.videoId), {
-            track: currentTrack,
+        const historyTrack = {
+            videoId: String(currentTrack.videoId || '').slice(0, 100),
+            title: String(currentTrack.title || '').slice(0, 200),
+            channelTitle: String(currentTrack.channelTitle || '').slice(0, 200),
+            thumbnailUrl: String(currentTrack.thumbnailUrl || '').slice(0, 1000),
+        };
+        if (!historyTrack.videoId) return;
+        setDoc(doc(db, 'users', user.uid, 'history', historyTrack.videoId), {
+            track: historyTrack,
             playedAt: serverTimestamp()
         }, { merge: true }).catch(e => console.error("Error saving history:", e));
     }
@@ -486,7 +502,13 @@ export function Player() {
          onDragEnd={(e, { offset, velocity }) => {
             if (isMobile && !isMobileExpanded) {
                if (offset.x < -80 || velocity.x < -500) {
+                   triggerMiniSwipeFeedback('next');
                    handleNext();
+                   return;
+               }
+               if (offset.x > 80 || velocity.x > 500) {
+                   triggerMiniSwipeFeedback('rewind');
+                   handleSeekBackward();
                }
             }
          }}
@@ -498,6 +520,32 @@ export function Player() {
              }
          }}
       >
+        <AnimatePresence>
+          {miniSwipeFeedback && (
+            <motion.div
+              key={miniSwipeFeedback}
+              initial={{ opacity: 0, scale: 0.8, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.8, y: -8 }}
+              className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center"
+            >
+              <div className="px-4 py-3 rounded-2xl bg-black/65 border border-white/15 backdrop-blur-lg text-white text-sm font-semibold shadow-xl flex items-center gap-2">
+                {miniSwipeFeedback === 'next' ? (
+                  <>
+                    <SkipForward className="w-4 h-4 fill-current" />
+                    Prossimo brano
+                  </>
+                ) : (
+                  <>
+                    <Rewind className="w-4 h-4 fill-current" />
+                    Indietro 10s
+                  </>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <footer className="player-footer-clickable h-[64px] md:h-[72px] px-2 flex py-1 flex-shrink-0 items-center justify-between w-full cursor-pointer md:cursor-default overflow-hidden hover:bg-white/5 transition-colors rounded-[24px]">
           <div className="flex items-center flex-1 md:w-[30%] md:flex-none md:min-w-[180px] overflow-hidden drop-shadow-md">
             <div className="w-11 h-11 md:w-14 md:h-14 bg-black/40 rounded-[12px] md:rounded-[16px] overflow-hidden flex-shrink-0 mr-3 border border-white/10 shadow-lg relative ml-1">
@@ -582,6 +630,9 @@ export function Player() {
               </button>
           </div>
         </footer>
+        <div className="md:hidden text-[10px] text-blue-200/40 px-4 pb-2 -mt-1 tracking-wide">
+          Swipe: sinistra = prossimo, destra = -10s
+        </div>
       </motion.div>
       </>
       )}

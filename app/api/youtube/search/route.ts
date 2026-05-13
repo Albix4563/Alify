@@ -1,5 +1,11 @@
 import { NextResponse } from "next/server";
 import { Innertube } from 'youtubei.js';
+import {
+  applyRateLimit,
+  logApiError,
+  normalizeAndLimit,
+  sanitizeText,
+} from '@/lib/api-security';
 
 let youtube: Innertube | null = null;
 async function getYouTube() {
@@ -10,8 +16,15 @@ async function getYouTube() {
 }
 
 export async function GET(request: Request) {
+  const rateLimitResponse = applyRateLimit(request, {
+    keyPrefix: 'youtube-search',
+    max: 45,
+    windowMs: 60_000,
+  });
+  if (rateLimitResponse) return rateLimitResponse;
+
   const { searchParams } = new URL(request.url);
-  const q = searchParams.get('q');
+  const q = normalizeAndLimit(searchParams.get('q'), 120);
   
   if (!q) {
     return NextResponse.json({ error: 'Query parameter is required' }, { status: 400 });
@@ -22,15 +35,18 @@ export async function GET(request: Request) {
     const searchResults = await yt.search(q, { type: 'video' });
     
     // Map to standard YouTube Data API v3 format to maintain compatibility with the frontend
-    const items = searchResults.videos.map((video: any) => {
+    const items = searchResults.videos.slice(0, 30).map((video: any) => {
+      const thumbs = Array.isArray(video.thumbnails) ? video.thumbnails : [];
+      const defaultThumb = thumbs[0]?.url || "";
+      const highThumb = thumbs[thumbs.length - 1]?.url || defaultThumb;
       return {
         id: { videoId: video.id },
         snippet: {
-          title: video.title?.text || "Unknown Title",
-          channelTitle: video.author?.name || "Unknown Channel",
+          title: sanitizeText(video.title?.text || "Unknown Title", 220),
+          channelTitle: sanitizeText(video.author?.name || "Unknown Channel", 220),
           thumbnails: {
-            default: { url: video.thumbnails?.[0]?.url || "" },
-            high: { url: video.thumbnails?.[video.thumbnails.length - 1]?.url || "" }
+            default: { url: defaultThumb },
+            high: { url: highThumb }
           }
         }
       };
@@ -38,9 +54,10 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ items });
   } catch (error) {
-    console.error("Youtubei API error:", error);
-    
-    const errorMessage = error instanceof Error ? error.message : 'Failed to search YouTube';
-    return NextResponse.json({ error: errorMessage }, { status: 500 });
+    logApiError("YouTube search API error", error);
+    return NextResponse.json(
+      { error: 'Failed to search YouTube at the moment.' },
+      { status: 500 },
+    );
   }
 }

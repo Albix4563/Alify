@@ -22,8 +22,13 @@ service cloud.firestore {
 
     function isValidHistory(data) {
       return data.keys().hasAll(['track', 'playedAt']) && data.keys().size() == 2
+        && data.playedAt is timestamp
         && data.track is map
-        && data.track.keys().hasAll(['videoId', 'title']);
+        && data.track.keys().hasAll(['videoId', 'title', 'channelTitle', 'thumbnailUrl']) && data.track.keys().size() == 4
+        && data.track.videoId is string && data.track.videoId.size() <= 100
+        && data.track.title is string && data.track.title.size() <= 200
+        && data.track.channelTitle is string && data.track.channelTitle.size() <= 200
+        && data.track.thumbnailUrl is string && data.track.thumbnailUrl.size() <= 1000;
     }
 
     function isValidFavorite(data) {
@@ -43,9 +48,12 @@ service cloud.firestore {
     }
 
     function isValidTrack(data) {
-      return data.keys().hasAny(['videoId', 'title', 'addedAt'])
+      return data.keys().hasAll(['videoId', 'title', 'channelTitle', 'thumbnailUrl', 'addedAt']) && data.keys().size() == 5
         && data.videoId is string && data.videoId.size() <= 100
-        && data.title is string && data.title.size() <= 200;
+        && data.title is string && data.title.size() <= 200
+        && data.channelTitle is string && data.channelTitle.size() <= 200
+        && data.thumbnailUrl is string && data.thumbnailUrl.size() <= 1000
+        && data.addedAt is timestamp;
     }
 
     // --- RULES ---

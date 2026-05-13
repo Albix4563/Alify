@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { usePlayerStore, Track, AudioQuality } from "@/lib/store";
 import { useAuth } from "@/lib/auth-context";
 import { db } from "@/lib/firebase";
@@ -32,6 +32,7 @@ import {
   History,
   Download,
   X,
+  ArrowUpDown,
 } from "lucide-react";
 import { motion, useAnimation, PanInfo, AnimatePresence } from "motion/react";
 import {
@@ -73,10 +74,15 @@ export function MainContent({
 
   const greeting = getGreeting();
 
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
+  const [playlistFilter, setPlaylistFilter] = useState("");
+  const [playlistSortMode, setPlaylistSortMode] = useState<"recent" | "title">(
+    "recent",
+  );
 
   useEffect(() => {
     const savedSearches = localStorage.getItem("albify_recent_searches");
@@ -88,6 +94,54 @@ export function MainContent({
       }
     }
   }, []);
+
+  useEffect(() => {
+    const focusSearch = () => {
+      setCurrentView("search");
+      setTimeout(() => {
+        searchInputRef.current?.focus();
+      }, 0);
+    };
+
+    const handleGlobalSearchShortcuts = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isTypingInField =
+        !!target?.closest("input, textarea, [contenteditable='true']");
+
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        focusSearch();
+        return;
+      }
+
+      if (
+        event.key === "/" &&
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !isTypingInField
+      ) {
+        event.preventDefault();
+        focusSearch();
+        return;
+      }
+
+      if (
+        event.key === "Escape" &&
+        currentView === "search" &&
+        searchInputRef.current === document.activeElement &&
+        searchQuery
+      ) {
+        setSearchQuery("");
+        setSearchResults([]);
+      }
+    };
+
+    window.addEventListener("keydown", handleGlobalSearchShortcuts);
+    return () => {
+      window.removeEventListener("keydown", handleGlobalSearchShortcuts);
+    };
+  }, [currentView, searchQuery, setCurrentView]);
 
   const [favorites, setFavorites] = useState<any[]>([]);
   const [playlistTracks, setPlaylistTracks] = useState<any[]>([]);
@@ -101,6 +155,31 @@ export function MainContent({
     null,
   );
   const [playlistToDelete, setPlaylistToDelete] = useState<any | null>(null);
+
+  const visiblePlaylistTracks = useMemo(() => {
+    const filter = playlistFilter.trim().toLowerCase();
+
+    const filtered = playlistTracks.filter((track) => {
+      if (!filter) return true;
+      const title = (track.title || track.snippet?.title || "").toLowerCase();
+      const channel = (
+        track.channelTitle ||
+        track.snippet?.channelTitle ||
+        ""
+      ).toLowerCase();
+      return title.includes(filter) || channel.includes(filter);
+    });
+
+    if (playlistSortMode === "title") {
+      return [...filtered].sort((a, b) => {
+        const titleA = a.title || a.snippet?.title || "";
+        const titleB = b.title || b.snippet?.title || "";
+        return titleA.localeCompare(titleB, "it", { sensitivity: "base" });
+      });
+    }
+
+    return filtered;
+  }, [playlistFilter, playlistSortMode, playlistTracks]);
 
   useEffect(() => {
     if (!user) return;
@@ -187,6 +266,16 @@ export function MainContent({
     return () => unsub();
   }, [user, currentView, currentPlaylist]);
 
+  useEffect(() => {
+    setPlaylistFilter("");
+    setPlaylistSortMode("recent");
+  }, [currentPlaylist?.id]);
+
+  const clearSearchState = () => {
+    setSearchQuery("");
+    setSearchResults([]);
+  };
+
   const handleSearch = async (queryToSearch: string = searchQuery) => {
     if (!queryToSearch.trim()) return;
     setSearching(true);
@@ -244,16 +333,22 @@ export function MainContent({
 
   const toggleFavorite = async (track: Track) => {
     if (!user) return;
+    const safeTrack = {
+      videoId: String(track.videoId || "").slice(0, 100),
+      title: String(track.title || "").slice(0, 200),
+      channelTitle: String(track.channelTitle || "").slice(0, 200),
+      thumbnailUrl: String(track.thumbnailUrl || "").slice(0, 1000),
+    };
     try {
-      const favRef = doc(db, "users", user.uid, "favorites", track.videoId);
-      if (favorites.some((f) => f.videoId === track.videoId))
+      const favRef = doc(db, "users", user.uid, "favorites", safeTrack.videoId);
+      if (favorites.some((f) => f.videoId === safeTrack.videoId))
         await deleteDoc(favRef);
-      else await setDoc(favRef, { ...track, addedAt: serverTimestamp() });
+      else await setDoc(favRef, { ...safeTrack, addedAt: serverTimestamp() });
     } catch (e) {
       handleFirestoreError(
         e,
         OperationType.WRITE,
-        `users/${user.uid}/favorites/${track.videoId}`,
+        `users/${user.uid}/favorites/${safeTrack.videoId}`,
       );
     }
   };
@@ -278,16 +373,22 @@ export function MainContent({
   };
 
   const addToPlaylist = async (track: Track, playlistId: string) => {
+    const safeTrack = {
+      videoId: String(track.videoId || "").slice(0, 100),
+      title: String(track.title || "").slice(0, 200),
+      channelTitle: String(track.channelTitle || "").slice(0, 200),
+      thumbnailUrl: String(track.thumbnailUrl || "").slice(0, 1000),
+    };
     try {
-      await setDoc(doc(db, "playlists", playlistId, "tracks", track.videoId), {
-        ...track,
+      await setDoc(doc(db, "playlists", playlistId, "tracks", safeTrack.videoId), {
+        ...safeTrack,
         addedAt: serverTimestamp(),
       });
     } catch (e) {
       handleFirestoreError(
         e,
         OperationType.WRITE,
-        `playlists/${playlistId}/tracks/${track.videoId}`,
+        `playlists/${playlistId}/tracks/${safeTrack.videoId}`,
       );
     }
   };
@@ -344,9 +445,9 @@ export function MainContent({
     }
   };
 
-  const shufflePlaylist = () => {
-    if (!playlistTracks.length) return;
-    const shuffled = [...playlistTracks].sort(() => Math.random() - 0.5);
+  const shufflePlaylist = (tracksToShuffle: any[] = playlistTracks) => {
+    if (!tracksToShuffle.length) return;
+    const shuffled = [...tracksToShuffle].sort(() => Math.random() - 0.5);
     setCurrentTrack(shuffled[0]);
     setQueue(shuffled.slice(1));
   };
@@ -998,13 +1099,20 @@ export function MainContent({
                       />
                     </span>
                     <input
+                      ref={searchInputRef}
                       type="text"
                       placeholder="Cerca artisti, brani o URL..."
                       className={`w-full bg-transparent rounded-[30px] focus:outline-none focus:ring-0 text-white transition-all placeholder-white/30 font-medium
                                                 ${searchResults.length === 0 && !searching && !searchQuery ? "py-5 h-16 pl-16 pr-16 text-xl" : "py-3 h-14 pl-14 pr-12 text-lg"}`}
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleSearch();
+                        if (e.key === "Escape") {
+                          clearSearchState();
+                          (e.target as HTMLInputElement).blur();
+                        }
+                      }}
                       onClick={() => {
                         if (
                           recentSearches.length > 0 &&
@@ -1018,15 +1126,16 @@ export function MainContent({
                     />
                     {searchQuery && (
                       <button
-                        onClick={() => {
-                          setSearchQuery("");
-                          setSearchResults([]);
-                        }}
+                        onClick={clearSearchState}
                         className="absolute inset-y-0 right-5 flex items-center text-white/50 hover:text-white transition-colors"
                       >
                         <Trash2 className="w-5 h-5" />
                       </button>
                     )}
+                  </div>
+                  <div className="px-6 pb-2 pt-1 text-[11px] tracking-wide text-blue-200/45">
+                    Scorciatoie: <span className="text-blue-100/80">/</span> o{" "}
+                    <span className="text-blue-100/80">Ctrl/Cmd + K</span>
                   </div>
 
                   {/* Dropdown Container (Tendina) */}
@@ -1277,7 +1386,9 @@ export function MainContent({
                   </h1>
                   <div className="text-sm text-blue-200/60 font-medium drop-shadow-sm">
                     <span className="text-white">{user?.displayName}</span> •{" "}
-                    {playlistTracks.length} brani
+                    {visiblePlaylistTracks.length}
+                    {playlistFilter.trim() ? ` di ${playlistTracks.length}` : ""}{" "}
+                    brani
                   </div>
                 </div>
               </div>
@@ -1285,9 +1396,9 @@ export function MainContent({
                 <button
                   className="w-12 h-12 md:w-14 md:h-14 bg-gradient-to-r from-sky-500 to-blue-500 hover:opacity-90 text-white rounded-full flex items-center justify-center shadow-[0_0_20px_rgba(56,189,248,0.4)] transition-all hover:scale-105"
                   onClick={() => {
-                    if (playlistTracks.length) {
-                      setCurrentTrack(playlistTracks[0]);
-                      setQueue(playlistTracks.slice(1));
+                    if (visiblePlaylistTracks.length) {
+                      setCurrentTrack(visiblePlaylistTracks[0]);
+                      setQueue(visiblePlaylistTracks.slice(1));
                     }
                   }}
                 >
@@ -1298,7 +1409,7 @@ export function MainContent({
                 </button>
                 <button
                   className="flex items-center justify-center gap-2 px-4 h-12 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full transition-all text-white font-medium"
-                  onClick={shufflePlaylist}
+                  onClick={() => shufflePlaylist(visiblePlaylistTracks)}
                 >
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
@@ -1350,11 +1461,54 @@ export function MainContent({
                   </button>
                 </div>
               </div>
-              <TrackList
-                tracks={playlistTracks}
-                contextPlaylistId={currentPlaylist.id}
-                layoutMode={playlistLayout}
-              />
+              <div className="mb-4 flex flex-col md:flex-row gap-2">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-blue-200/50 absolute left-4 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={playlistFilter}
+                    onChange={(e) => setPlaylistFilter(e.target.value)}
+                    placeholder="Filtra brani nella playlist..."
+                    className="w-full h-11 pl-10 pr-10 rounded-xl bg-white/5 border border-white/10 text-sm text-white placeholder:text-blue-200/35 focus:outline-none focus:border-sky-400/60 transition-colors"
+                  />
+                  {playlistFilter && (
+                    <button
+                      onClick={() => setPlaylistFilter("")}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-blue-200/50 hover:text-white transition-colors"
+                      title="Pulisci filtro"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+                <button
+                  onClick={() =>
+                    setPlaylistSortMode((mode) =>
+                      mode === "recent" ? "title" : "recent",
+                    )
+                  }
+                  className="h-11 px-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-sm font-medium text-white flex items-center justify-center gap-2 transition-colors"
+                >
+                  <ArrowUpDown className="w-4 h-4 text-blue-200/70" />
+                  {playlistSortMode === "recent"
+                    ? "Ordina: Recenti"
+                    : "Ordina: Titolo A-Z"}
+                </button>
+              </div>
+
+              {visiblePlaylistTracks.length > 0 ? (
+                <TrackList
+                  tracks={visiblePlaylistTracks}
+                  contextPlaylistId={currentPlaylist.id}
+                  layoutMode={playlistLayout}
+                />
+              ) : (
+                <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-5 text-sm text-blue-200/60">
+                  {playlistTracks.length === 0
+                    ? "Questa playlist è ancora vuota."
+                    : "Nessun brano trovato con il filtro corrente."}
+                </div>
+              )}
             </section>
           )}
       </motion.div>

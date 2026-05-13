@@ -8,6 +8,41 @@ import { handleFirestoreError, OperationType } from '@/lib/firestore-error';
 import { PlaySquare } from 'lucide-react';
 import { toast } from 'sonner';
 
+function mapFirebaseAuthError(error: unknown, isLogin: boolean): string {
+  const code = typeof error === 'object' && error && 'code' in error
+    ? String((error as { code?: unknown }).code)
+    : '';
+
+  if (code === 'auth/network-request-failed') {
+    return 'Errore di rete. Verifica la connessione e riprova.';
+  }
+
+  if (code === 'auth/too-many-requests') {
+    return 'Troppi tentativi. Riprova più tardi.';
+  }
+
+  if (isLogin) {
+    if (['auth/invalid-email', 'auth/invalid-credential', 'auth/user-not-found', 'auth/wrong-password'].includes(code)) {
+      return 'Credenziali non valide.';
+    }
+    if (code === 'auth/user-disabled') {
+      return 'Account disabilitato.';
+    }
+  } else {
+    if (code === 'auth/email-already-in-use') {
+      return 'Questa email è già registrata.';
+    }
+    if (code === 'auth/weak-password') {
+      return 'Password troppo debole.';
+    }
+    if (code === 'auth/invalid-email') {
+      return 'Email non valida.';
+    }
+  }
+
+  return 'Operazione non riuscita. Riprova.';
+}
+
 export function AuthForm() {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
@@ -38,9 +73,10 @@ export function AuthForm() {
             handleFirestoreError(dbError, OperationType.CREATE, `users/${userCredential.user.uid}`);
         }
       }
-    } catch (err: any) {
-      setError(err.message);
-      toast.error(err.message);
+    } catch (err: unknown) {
+      const safeMessage = mapFirebaseAuthError(err, isLogin);
+      setError(safeMessage);
+      toast.error(safeMessage);
     } finally {
       setLoading(false);
     }
@@ -63,9 +99,10 @@ export function AuthForm() {
       } catch (dbError) {
           handleFirestoreError(dbError, OperationType.CREATE, `users/${userCredential.user.uid}`);
       }
-    } catch (err: any) {
-      setError(err.message);
-      toast.error(err.message);
+    } catch (err: unknown) {
+      const safeMessage = mapFirebaseAuthError(err, true);
+      setError(safeMessage);
+      toast.error(safeMessage);
     } finally {
       setLoading(false);
     }
