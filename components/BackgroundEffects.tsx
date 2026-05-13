@@ -3,25 +3,31 @@
 import { motion } from 'motion/react';
 import { useEffect, useState } from 'react';
 
-const STAR_FIELD = [
-  { left: 10, top: 16, size: 2, delay: 0, duration: 5.5, opacity: 0.35 },
-  { left: 18, top: 72, size: 1.5, delay: 0.8, duration: 6.2, opacity: 0.4 },
-  { left: 26, top: 38, size: 2.5, delay: 1.1, duration: 7.3, opacity: 0.45 },
-  { left: 34, top: 10, size: 1.5, delay: 0.3, duration: 5.8, opacity: 0.3 },
-  { left: 42, top: 58, size: 2, delay: 2, duration: 7, opacity: 0.45 },
-  { left: 51, top: 24, size: 1.5, delay: 1.4, duration: 6.1, opacity: 0.4 },
-  { left: 60, top: 82, size: 2, delay: 2.6, duration: 7.6, opacity: 0.32 },
-  { left: 68, top: 46, size: 2.5, delay: 0.5, duration: 6.5, opacity: 0.4 },
-  { left: 76, top: 14, size: 1.5, delay: 1.9, duration: 5.9, opacity: 0.38 },
-  { left: 84, top: 66, size: 2, delay: 0.2, duration: 7.2, opacity: 0.42 },
-  { left: 91, top: 30, size: 1.5, delay: 1.6, duration: 6.4, opacity: 0.35 },
-];
+// Generates an array of semi-random particles for a starry/dust effect
+const generateParticles = (count: number) => {
+  return Array.from({ length: count }).map((_, i) => ({
+    id: i,
+    left: [10, 18, 26, 34, 42, 51, 60, 68, 76, 84, 91, 5, 20, 35, 50, 65, 80, 95, 15, 45, 75, 85, 90, 8, 28, 48, 58, 88, 98][i % 29],
+    top: [16, 72, 38, 10, 58, 24, 82, 46, 14, 66, 30, 80, 20, 60, 90, 40, 70, 50, 85, 15, 65, 35, 95, 25, 55, 45, 75, 5, 18][i % 29],
+    size: (i % 3) + 1.5,
+    delay: (i % 5) * 0.7,
+    duration: 5 + (i % 4),
+    opacity: 0.2 + ((i % 5) * 0.1),
+    yOffset: (i % 2 === 0) ? -20 : 20,
+    xOffset: (i % 3 === 0) ? -10 : 10,
+  }));
+};
+
+const STAR_FIELD = generateParticles(30);
 
 export function BackgroundEffects() {
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
   const [pointer, setPointer] = useState({ x: 0.5, y: 0.5 });
+  const [mounted, setMounted] = useState(false);
+  const [trail, setTrail] = useState<{x: number, y: number, id: number}[]>([]);
 
   useEffect(() => {
+    setMounted(true);
     const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
     setPrefersReducedMotion(mediaQuery.matches);
     
@@ -42,15 +48,34 @@ export function BackgroundEffects() {
           x: event.clientX / window.innerWidth,
           y: event.clientY / window.innerHeight,
         });
+
+        // Add to trail
+        setTrail(prev => {
+          const newTrail = [...prev, { x: event.clientX, y: event.clientY, id: Date.now() }];
+          if (newTrail.length > 20) return newTrail.slice(newTrail.length - 20);
+          return newTrail;
+        });
       });
     };
 
     window.addEventListener("pointermove", onPointerMove, { passive: true });
+    
+    // Cleanup old trail
+    const interval = setInterval(() => {
+      setTrail(prev => {
+        if (prev.length === 0) return prev;
+        return prev.slice(1);
+      });
+    }, 50);
+
     return () => {
       if (frame) cancelAnimationFrame(frame);
       window.removeEventListener("pointermove", onPointerMove);
+      clearInterval(interval);
     };
   }, [prefersReducedMotion]);
+
+  if (!mounted) return null;
 
   const driftX = (pointer.x - 0.5) * 80;
   const driftY = (pointer.y - 0.5) * 60;
@@ -92,6 +117,17 @@ export function BackgroundEffects() {
         className="absolute top-[20%] -right-[20%] w-[60vw] h-[60vw] rounded-full mix-blend-screen filter blur-[140px] opacity-30 bg-[#0c4a6e]"
       />
 
+      {/* Ambient pinkish/purple accent for cuteness */}
+      <motion.div
+        animate={{
+          x: [driftX * 0.3, driftX * 0.3 - 50, driftX * 0.3],
+          y: [-driftY * 0.4, -driftY * 0.4 - 30, -driftY * 0.4],
+          scale: [1, 1.15, 1],
+        }}
+        transition={{ duration: 22, repeat: Infinity, ease: "linear" }}
+        className="absolute top-[40%] left-[40%] w-[50vw] h-[50vw] rounded-full mix-blend-screen filter blur-[130px] opacity-20 bg-purple-800"
+      />
+
       {/* Deep Blue Blur */}
       <motion.div
         animate={{
@@ -103,10 +139,11 @@ export function BackgroundEffects() {
         className="absolute -bottom-[20%] left-[20%] w-[80vw] h-[60vw] rounded-full mix-blend-screen filter blur-[150px] opacity-30 bg-[#0a2342]"
       />
 
-      {STAR_FIELD.map((star, index) => (
+      {/* White floating dots ("pallini bianchi") */}
+      {STAR_FIELD.map((star) => (
         <motion.div
-          key={index}
-          className="absolute rounded-full bg-sky-200/80 shadow-[0_0_12px_rgba(125,211,252,0.8)]"
+          key={star.id}
+          className="absolute rounded-full bg-white/90 shadow-[0_0_15px_rgba(255,255,255,0.9)]"
           style={{
             left: `${star.left}%`,
             top: `${star.top}%`,
@@ -117,8 +154,10 @@ export function BackgroundEffects() {
             prefersReducedMotion
               ? { opacity: star.opacity }
               : {
-                  opacity: [star.opacity * 0.6, star.opacity, star.opacity * 0.6],
-                  scale: [1, 1.35, 1],
+                  opacity: [star.opacity * 0.3, star.opacity, star.opacity * 0.3],
+                  scale: [1, 1.5, 1],
+                  y: [0, star.yOffset, 0],
+                  x: [0, star.xOffset, 0],
                 }
           }
           transition={{
@@ -126,6 +165,21 @@ export function BackgroundEffects() {
             delay: star.delay,
             repeat: Infinity,
             ease: "easeInOut",
+          }}
+        />
+      ))}
+
+      {/* Magic Cursor Trail */}
+      {trail.map((t, index) => (
+        <motion.div
+          key={t.id}
+          initial={{ opacity: 0.8, scale: Number(1 - index * 0.05) }}
+          animate={{ opacity: 0, scale: 0 }}
+          transition={{ duration: 0.8, ease: "easeOut" }}
+          className="absolute rounded-full bg-sky-300 w-2 h-2 shadow-[0_0_10px_rgba(125,211,252,0.8)] pointer-events-none z-50"
+          style={{
+            left: t.x - 4,
+            top: t.y - 4,
           }}
         />
       ))}
