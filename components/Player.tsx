@@ -281,6 +281,7 @@ export function Player() {
       }
       if (isPlaying) {
           e.target.playVideo();
+          audioRef.current?.play().catch(() => {});
       }
   };
 
@@ -316,8 +317,8 @@ export function Player() {
         loop 
         preload="auto"
         playsInline 
-        src="/assets/silence.wav" 
-        style={{ display: 'none' }} 
+        src="data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA" 
+        style={{ position: 'absolute', width: 0, height: 0, opacity: 0, pointerEvents: 'none' }} 
       />
       <div 
          className={`
