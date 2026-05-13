@@ -413,10 +413,19 @@ export function Player() {
 
               <div className="flex flex-col justify-end w-full mt-auto mb-0 z-[102] pt-6 pb-2">
                   <div className="flex items-center justify-between mb-4">
-                      <div className="flex flex-col flex-1 overflow-hidden pr-4">
+                      <AnimatePresence mode="popLayout" initial={false}>
+                        <motion.div 
+                          key={currentTrack.videoId}
+                          initial={{ opacity: 0, y: 15, filter: "blur(8px)" }}
+                          animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                          exit={{ opacity: 0, y: -15, filter: "blur(8px)" }}
+                          transition={{ duration: 0.6, type: "spring", stiffness: 80, damping: 20 }}
+                          className="flex flex-col flex-1 overflow-hidden pr-4"
+                        >
                           <h2 className="text-xl font-bold text-white truncate drop-shadow-lg">{currentTrack.title}</h2>
                           <p className="text-sm text-blue-300/80 truncate font-medium drop-shadow-md">{currentTrack.channelTitle}</p>
-                      </div>
+                        </motion.div>
+                      </AnimatePresence>
                       <div className="flex items-center gap-3">
                           <button className="text-white/70 hover:text-white transition-colors active:scale-90">
                                <Heart className="w-5 h-5" />
@@ -547,16 +556,25 @@ export function Player() {
         </AnimatePresence>
 
         <footer className="player-footer-clickable h-[64px] md:h-[72px] px-2 flex py-1 flex-shrink-0 items-center justify-between w-full cursor-pointer md:cursor-default overflow-hidden hover:bg-white/5 transition-colors rounded-[24px]">
-          <div className="flex items-center flex-1 md:w-[30%] md:flex-none md:min-w-[180px] overflow-hidden drop-shadow-md">
-            <div className="w-11 h-11 md:w-14 md:h-14 bg-black/40 rounded-[12px] md:rounded-[16px] overflow-hidden flex-shrink-0 mr-3 border border-white/10 shadow-lg relative ml-1">
-              <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent z-10 pointer-events-none" />
-              <img src={currentTrack.thumbnailUrl} alt={currentTrack.title} className="w-full h-full object-cover relative z-0" />
-            </div>
-            <div className="overflow-hidden flex flex-col justify-center">
-              <h4 className="text-[13px] md:text-[14px] font-bold truncate text-white leading-tight mb-1">{currentTrack.title}</h4>
-              <p className="text-[11px] md:text-[12px] font-medium text-blue-300/70 truncate leading-tight">{currentTrack.channelTitle}</p>
-            </div>
-          </div>
+          <AnimatePresence mode="popLayout" initial={false}>
+            <motion.div 
+              key={currentTrack.videoId}
+              initial={{ opacity: 0, x: 20, filter: "blur(8px)" }}
+              animate={{ opacity: 1, x: 0, filter: "blur(0px)" }}
+              exit={{ opacity: 0, x: -20, filter: "blur(8px)" }}
+              transition={{ duration: 0.6, type: "spring", stiffness: 80, damping: 20 }}
+              className="flex items-center flex-1 md:w-[30%] md:flex-none md:min-w-[180px] overflow-hidden drop-shadow-md"
+            >
+              <div className="w-11 h-11 md:w-14 md:h-14 bg-black/40 rounded-[12px] md:rounded-[16px] overflow-hidden flex-shrink-0 mr-3 border border-white/10 shadow-lg relative ml-1">
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent z-10 pointer-events-none" />
+                <img src={currentTrack.thumbnailUrl} alt={currentTrack.title} className="w-full h-full object-cover relative z-0" />
+              </div>
+              <div className="overflow-hidden flex flex-col justify-center">
+                <h4 className="text-[13px] md:text-[14px] font-bold truncate text-white leading-tight mb-1">{currentTrack.title}</h4>
+                <p className="text-[11px] md:text-[12px] font-medium text-blue-300/70 truncate leading-tight">{currentTrack.channelTitle}</p>
+              </div>
+            </motion.div>
+          </AnimatePresence>
 
           <div className="flex md:hidden items-center justify-end gap-3 ml-4" onClick={e => e.stopPropagation()}>
               <button className="p-2 text-white/70 hover:text-white transition-colors" onClick={handleNext}>

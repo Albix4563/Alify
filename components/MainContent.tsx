@@ -1132,13 +1132,15 @@ export function MainContent({
         </DialogContent>
       </Dialog>
 
-      <motion.div
-        key={currentView}
-        initial={{ opacity: 0, y: 12, filter: "blur(6px)" }}
-        animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-        transition={{ duration: 0.25, type: "spring", bounce: 0.15 }}
-        className="w-full relative z-0"
-      >
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={currentView}
+          initial={{ opacity: 0, y: 15, filter: "blur(12px)", scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, filter: "blur(0px)", scale: 1 }}
+          exit={{ opacity: 0, y: -15, filter: "blur(12px)", scale: 0.98 }}
+          transition={{ duration: 0.7, type: "spring", stiffness: 80, damping: 20, mass: 1 }}
+          className="w-full relative z-0"
+        >
           {currentView === "profile" && <ProfileView setCurrentView={setCurrentView} />}
           {currentView === "changelog" && <ChangelogView />}
           <ImportView currentView={currentView} userPlaylists={userPlaylists} setCurrentView={setCurrentView} />
@@ -1671,6 +1673,7 @@ export function MainContent({
             </section>
           )}
       </motion.div>
+      </AnimatePresence>
     </div>
   );
 }
