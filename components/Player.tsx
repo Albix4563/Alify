@@ -552,19 +552,29 @@ export function Player() {
       setIsReady(false);
       setIsPlaying(false);
       setMediaState('paused');
+      setIsMobileExpanded(false);
+      setVideoExpanded(false);
 
       stopKeepAliveAudio();
       return;
     }
 
-    youtubePlayerRef.current = null;
     desiredPlayingRef.current = true;
     trackChangingRef.current = true;
 
     setCurrentTime(0);
     setDuration(0);
-    setIsReady(false);
     setIsPlaying(false);
+
+    // Se abbiamo già il player e la canzone è uguale (o stiamo solo forzando play), ripartiamo da capo
+    if (youtubePlayerRef.current && isReady) {
+       try {
+         youtubePlayerRef.current.seekTo(0);
+         if (desiredPlayingRef.current) {
+           youtubePlayerRef.current.playVideo();
+         }
+       } catch (error) {}
+    }
 
     if (window.innerWidth < 768) {
       setIsMobileExpanded(true);
@@ -783,8 +793,6 @@ export function Player() {
     };
   }, [stopKeepAliveAudio]);
 
-  if (!currentTrack) return null;
-
   return (
     <>
       <audio
@@ -843,8 +851,7 @@ export function Player() {
           }
         >
           <YouTube
-            key={`${currentTrack.videoId}-${playRequestId}`}
-            videoId={currentTrack.videoId}
+            videoId={currentTrack?.videoId || ''}
             opts={{
               width: '100%',
               height: '100%',
@@ -893,8 +900,10 @@ export function Player() {
         </div>
       </div>
 
-      <AnimatePresence>
-        {isMobileExpanded && (
+      {currentTrack && (
+        <>
+        <AnimatePresence>
+          {isMobileExpanded && (
           <motion.div
             initial={{ y: '100%', opacity: 0, filter: 'blur(20px)' }}
             animate={{ y: 0, opacity: 1, filter: 'blur(0px)' }}
@@ -1360,6 +1369,8 @@ export function Player() {
           </div>
         </footer>
       </motion.div>
+        </>
+      )}
     </>
   );
 }

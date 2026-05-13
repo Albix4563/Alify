@@ -2,7 +2,6 @@ import type {NextConfig} from 'next';
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  eslint: { ignoreDuringBuilds: true },
   typescript: { ignoreBuildErrors: true },
   images: {
     remotePatterns: [
@@ -10,6 +9,7 @@ const nextConfig: NextConfig = {
     ],
   },
   output: 'standalone',
+  turbopack: {},
   webpack: (config, {dev}) => {
     if (dev && process.env.DISABLE_HMR === 'true') {
       config.watchOptions = { ignored: /.*/ };
