@@ -99,7 +99,7 @@ export function Player() {
     try {
       navigator.mediaSession.playbackState = state;
     } catch {
-      // MediaSession non pienamente supportata.
+      // MediaSession non supportata completamente.
     }
   }, []);
 
@@ -116,9 +116,27 @@ export function Player() {
         position: Math.min(position, total),
       });
     } catch {
-      // Alcuni browser non supportano setPositionState.
+      // setPositionState non è disponibile su tutti i browser.
     }
   }, []);
+
+  const callYoutube = useCallback(
+    async <T = any,>(method: string, args: any[] = []): Promise<T | undefined> => {
+      const player = youtubePlayerRef.current;
+
+      if (!player || typeof player[method] !== 'function') {
+        return undefined;
+      }
+
+      try {
+        return await player[method](...args);
+      } catch (error) {
+        console.warn(`YouTube ${method} error:`, error);
+        return undefined;
+      }
+    },
+    [],
+  );
 
   const ensureKeepAliveAudio = useCallback(async () => {
     const audio = audioRef.current;
@@ -133,9 +151,9 @@ export function Player() {
           audio.load();
         }
 
-        await audio.play();
+        void audio.play();
       } catch {
-        // Può essere bloccato se non deriva da interazione utente.
+        // Può essere bloccato dal browser.
       }
     }
 
@@ -185,21 +203,28 @@ export function Player() {
     oscillatorRef.current = null;
   }, []);
 
-  const callYoutube = useCallback(async <T = any,>(
-    method: string,
-    args: any[] = [],
-  ): Promise<T | undefined> => {
+  const playYoutubeNow = useCallback((reason = 'manual') => {
     const player = youtubePlayerRef.current;
 
-    if (!player || typeof player[method] !== 'function') {
-      return undefined;
+    if (!player || typeof player.playVideo !== 'function') {
+      return false;
     }
 
     try {
-      return await player[method](...args);
+      if (typeof player.unMute === 'function') {
+        player.unMute();
+      }
+
+      if (typeof player.setVolume === 'function') {
+        player.setVolume(100);
+      }
+
+      player.playVideo();
+
+      return true;
     } catch (error) {
-      console.warn(`YouTube ${method} error:`, error);
-      return undefined;
+      console.warn(`Immediate YouTube play failed (${reason}):`, error);
+      return false;
     }
   }, []);
 
@@ -210,23 +235,27 @@ export function Player() {
       desiredPlayingRef.current = true;
       const attemptId = ++playAttemptRef.current;
 
-      await ensureKeepAliveAudio();
+      // Chiamata immediata, senza await prima.
+      playYoutubeNow(reason);
 
-      for (let attempt = 0; attempt < 10; attempt += 1) {
+      // Keep-alive in parallelo, non deve ritardare playVideo().
+      void ensureKeepAliveAudio();
+
+      for (let attempt = 0; attempt < 12; attempt += 1) {
         if (attemptId !== playAttemptRef.current) return false;
 
         const player = youtubePlayerRef.current;
 
         if (!player || typeof player.playVideo !== 'function') {
-          await wait(150);
+          await wait(120);
           continue;
         }
 
+        playYoutubeNow(`${reason}-retry-${attempt}`);
+
+        await wait(attempt < 4 ? 180 : 300);
+
         try {
-          player.playVideo();
-
-          await wait(attempt < 3 ? 180 : 300);
-
           const state =
             typeof player.getPlayerState === 'function'
               ? player.getPlayerState()
@@ -238,22 +267,33 @@ export function Player() {
             return true;
           }
 
-          if (state === YT_STATE.BUFFERING || state === YT_STATE.UNSTARTED) {
+          if (
+            state === YT_STATE.BUFFERING ||
+            state === YT_STATE.UNSTARTED ||
+            state === YT_STATE.CUED
+          ) {
             setMediaState('playing');
           }
         } catch (error) {
-          console.warn(`Playback failed (${reason}):`, error);
+          console.warn(`YouTube state check failed (${reason}):`, error);
         }
 
-        await wait(250 + attempt * 100);
+        await wait(180 + attempt * 80);
       }
 
+      desiredPlayingRef.current = false;
       setIsPlaying(false);
       setMediaState('paused');
 
       return false;
     },
-    [currentTrack, ensureKeepAliveAudio, setIsPlaying, setMediaState],
+    [
+      currentTrack,
+      ensureKeepAliveAudio,
+      playYoutubeNow,
+      setIsPlaying,
+      setMediaState,
+    ],
   );
 
   const pauseYoutubePlayback = useCallback(async () => {
@@ -277,7 +317,7 @@ export function Player() {
       return;
     }
 
-    await ensureKeepAliveAudio();
+    void ensureKeepAliveAudio();
     playNext();
   }, [
     callYoutube,
@@ -381,16 +421,36 @@ export function Player() {
 
   const handleYoutubeReady = useCallback(
     (event: any) => {
-      youtubePlayerRef.current = event.target;
+      const player = event.target;
+
+      youtubePlayerRef.current = player;
       setIsReady(true);
       trackChangingRef.current = false;
 
-      if (currentTime > 0) {
-        event.target.seekTo(currentTime, true);
+      try {
+        if (typeof player.unMute === 'function') {
+          player.unMute();
+        }
+
+        if (typeof player.setVolume === 'function') {
+          player.setVolume(100);
+        }
+
+        if (currentTime > 0 && typeof player.seekTo === 'function') {
+          player.seekTo(currentTime, true);
+        }
+
+        if (desiredPlayingRef.current && typeof player.playVideo === 'function') {
+          player.playVideo();
+        }
+      } catch (error) {
+        console.warn('YouTube ready playback failed:', error);
       }
 
       if (desiredPlayingRef.current) {
-        void startYoutubePlayback('youtube-ready');
+        window.setTimeout(() => {
+          void startYoutubePlayback('youtube-ready');
+        }, 80);
       }
     },
     [currentTime, startYoutubePlayback],
@@ -760,7 +820,7 @@ export function Player() {
           }
           ${
             !isMobileExpanded && !videoExpanded
-              ? 'fixed w-0 h-0 opacity-0 overflow-hidden z-[101]'
+              ? 'fixed left-[-9999px] top-[-9999px] w-px h-px opacity-0 overflow-hidden z-[101]'
               : ''
           }
         `}
