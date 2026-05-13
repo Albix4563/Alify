@@ -52,6 +52,11 @@
         "title": { "type": "string" },
         "description": { "type": "string" },
         "isPublic": { "type": "boolean" },
+        "isCollaborative": { "type": "boolean" },
+        "collaborators": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },

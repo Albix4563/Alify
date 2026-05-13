@@ -40,7 +40,7 @@ export function TrendingGenres({
     if (!tracksByGenre[activeGenre]) {
       fetchTrending(activeGenre);
     }
-  }, [activeGenre]);
+  }, [activeGenre, tracksByGenre]);
 
   const fetchTrending = async (genre: string) => {
     setLoading(true);

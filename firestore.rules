@@ -41,10 +41,12 @@ service cloud.firestore {
 
     function isValidPlaylist(data) {
       return data.keys().hasAny(['ownerId', 'title', 'isPublic'])
-        && data.ownerId == request.auth.uid
+        && data.ownerId is string
         && data.title is string && data.title.size() <= 150
         && data.isPublic is bool
-        && (data.get('description', '') is string && data.get('description', '').size() <= 1000);
+        && (data.get('description', '') is string && data.get('description', '').size() <= 1000)
+        && (data.get('isCollaborative', false) is bool)
+        && (data.get('collaborators', []) is list && data.get('collaborators', []).size() <= 20);
     }
 
     function isValidTrack(data) {
@@ -91,21 +93,26 @@ service cloud.firestore {
     }
 
     match /playlists/{playlistId} {
-      allow get: if isValidId(playlistId) && (existing().isPublic == true || (isSignedIn() && existing().ownerId == request.auth.uid));
+      allow get: if isValidId(playlistId) && (existing().isPublic == true || (isSignedIn() && (existing().ownerId == request.auth.uid || request.auth.uid in existing().get('collaborators', []))));
       // Strict relational query enforcement
-      allow list: if isSignedIn() && existing().ownerId == request.auth.uid;
+      allow list: if isSignedIn() && (existing().ownerId == request.auth.uid || request.auth.uid in existing().get('collaborators', []));
       
       allow create: if isSignedIn() 
         && isValidId(playlistId) 
         && isValidPlaylist(incoming())
+        && incoming().ownerId == request.auth.uid
         && incoming().keys().hasAll(['ownerId', 'title', 'isPublic', 'createdAt']);
         
       allow update: if isSignedIn() 
         && isValidId(playlistId) 
         && isValidPlaylist(incoming())
-        && existing().ownerId == request.auth.uid 
         && incoming().ownerId == existing().ownerId
-        && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'description', 'isPublic', 'updatedAt']);
+        && (
+           // Owner action
+           (existing().ownerId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'description', 'isPublic', 'isCollaborative', 'collaborators', 'updatedAt'])) ||
+           // Join Action
+           (existing().get('isCollaborative', false) == true && incoming().diff(existing()).affectedKeys().hasOnly(['collaborators', 'updatedAt']))
+        );
         
       allow delete: if isSignedIn() && isValidId(playlistId) && existing().ownerId == request.auth.uid;
 
@@ -114,19 +121,29 @@ service cloud.firestore {
         allow get, list: if isSignedIn() && isValidId(trackId) && 
           (
             get(/databases/$(database)/documents/playlists/$(playlistId)).data.isPublic == true || 
-            get(/databases/$(database)/documents/playlists/$(playlistId)).data.ownerId == request.auth.uid
+            get(/databases/$(database)/documents/playlists/$(playlistId)).data.ownerId == request.auth.uid ||
+            request.auth.uid in get(/databases/$(database)/documents/playlists/$(playlistId)).data.get('collaborators', [])
           );
           
         allow create: if isSignedIn() && isValidId(trackId) && isValidTrack(incoming()) && 
-          get(/databases/$(database)/documents/playlists/$(playlistId)).data.ownerId == request.auth.uid
+          (
+             get(/databases/$(database)/documents/playlists/$(playlistId)).data.ownerId == request.auth.uid ||
+             request.auth.uid in get(/databases/$(database)/documents/playlists/$(playlistId)).data.get('collaborators', [])
+          )
           && incoming().keys().hasAll(['videoId', 'title', 'channelTitle', 'thumbnailUrl', 'addedAt']);
           
         allow update: if isSignedIn() && isValidId(trackId) && isValidTrack(incoming()) && 
-          get(/databases/$(database)/documents/playlists/$(playlistId)).data.ownerId == request.auth.uid
+          (
+             get(/databases/$(database)/documents/playlists/$(playlistId)).data.ownerId == request.auth.uid ||
+             request.auth.uid in get(/databases/$(database)/documents/playlists/$(playlistId)).data.get('collaborators', [])
+          )
           && incoming().diff(existing()).affectedKeys().hasOnly(['addedAt']);
           
         allow delete: if isSignedIn() && isValidId(trackId) && 
-          get(/databases/$(database)/documents/playlists/$(playlistId)).data.ownerId == request.auth.uid;
+          (
+             get(/databases/$(database)/documents/playlists/$(playlistId)).data.ownerId == request.auth.uid ||
+             request.auth.uid in get(/databases/$(database)/documents/playlists/$(playlistId)).data.get('collaborators', [])
+          );
       }
     }
   }

@@ -33,6 +33,8 @@ import {
   Download,
   X,
   ArrowUpDown,
+  Sparkles,
+  Users
 } from "lucide-react";
 import { motion, useAnimation, PanInfo, AnimatePresence } from "motion/react";
 import {
@@ -47,6 +49,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { ProfileView } from "./ProfileView";
 import { ImportView } from "./ImportView";
@@ -154,6 +157,9 @@ export function MainContent({
   const [shareDialogPlaylist, setShareDialogPlaylist] = useState<any | null>(
     null,
   );
+  const [isCollabToggle, setIsCollabToggle] = useState(false);
+  const [smartPrompt, setSmartPrompt] = useState("");
+  const [generatingSmart, setGeneratingSmart] = useState(false);
   const [playlistToDelete, setPlaylistToDelete] = useState<any | null>(null);
 
   const visiblePlaylistTracks = useMemo(() => {
@@ -194,16 +200,39 @@ export function MainContent({
       (err) => handleFirestoreError(err, OperationType.LIST, "favorites"),
     );
 
-    const qPl = query(
+    const qPl1 = query(
       collection(db, "playlists"),
-      where("ownerId", "==", user.uid),
+      where("ownerId", "==", user.uid)
     );
-    const unsubPl = onSnapshot(
-      qPl,
+    const qPl2 = query(
+      collection(db, "playlists"),
+      where("collaborators", "array-contains", user.uid)
+    );
+
+    let lists1: any[] = [];
+    let lists2: any[] = [];
+    const updatePlaylistsList = () => {
+      const merged = [...lists1, ...lists2];
+      const unique = merged.filter((item, i, ar) => ar.findIndex(x => x.id === item.id) === i);
+      setUserPlaylists(unique);
+    };
+
+    const unsubPl1 = onSnapshot(
+      qPl1,
       (snap) => {
-        const lists: any[] = [];
-        snap.forEach((d) => lists.push({ id: d.id, ...d.data() }));
-        setUserPlaylists(lists);
+        lists1 = [];
+        snap.forEach((d) => lists1.push({ id: d.id, ...d.data() }));
+        updatePlaylistsList();
+      },
+      (err) => handleFirestoreError(err, OperationType.LIST, "playlists"),
+    );
+
+    const unsubPl2 = onSnapshot(
+      qPl2,
+      (snap) => {
+        lists2 = [];
+        snap.forEach((d) => lists2.push({ id: d.id, ...d.data() }));
+        updatePlaylistsList();
       },
       (err) => handleFirestoreError(err, OperationType.LIST, "playlists"),
     );
@@ -240,7 +269,8 @@ export function MainContent({
 
     return () => {
       unsubFav();
-      unsubPl();
+      unsubPl1();
+      unsubPl2();
       unsubHist();
       unsubProfile();
     };
@@ -353,22 +383,61 @@ export function MainContent({
     }
   };
 
-  const addPlaylist = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const addPlaylist = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (!user || !newPlaylistTitle.trim()) return;
     try {
-      await addDoc(collection(db, "playlists"), {
+      const isPublic = isCollabToggle ? true : false;
+      const ref = await addDoc(collection(db, "playlists"), {
         ownerId: user.uid,
         title: newPlaylistTitle,
         description: "",
-        isPublic: false,
+        isPublic,
+        isCollaborative: isCollabToggle,
+        collaborators: [],
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
       setCreatePlaylistDialog(false);
       setNewPlaylistTitle("");
+      setIsCollabToggle(false);
+      return ref.id;
     } catch (e) {
       handleFirestoreError(e, OperationType.CREATE, "playlists");
+    }
+  };
+
+  const generateSmartPlaylist = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!smartPrompt.trim() || generatingSmart || !user) return;
+    setGeneratingSmart(true);
+
+    try {
+      const res = await fetch("/api/youtube/smart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: smartPrompt })
+      });
+      
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Errore nella generazione");
+
+      const playlistId = await addPlaylist();
+      if (!playlistId) throw new Error("Errore durante la creazione della playlist base");
+
+      for (const track of data.tracks) {
+         await addToPlaylist(track, playlistId);
+      }
+
+      toast.success("Playlist generata con successo!");
+      setCreatePlaylistDialog(false);
+      setNewPlaylistTitle("");
+      setSmartPrompt("");
+    } catch(e: any) {
+      console.error(e);
+      toast.error(e.message || "Errore sconosciuto");
+    } finally {
+      setGeneratingSmart(false);
     }
   };
 
@@ -862,24 +931,102 @@ export function MainContent({
         open={createPlaylistDialog}
         onOpenChange={setCreatePlaylistDialog}
       >
-        <DialogContent className="bg-black/80 backdrop-blur-2xl border-white/20 text-white shadow-2xl">
-          <DialogHeader>
-            <DialogTitle className="text-blue-50">Nuova Playlist</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={addPlaylist} className="space-y-4">
-            <input
-              value={newPlaylistTitle}
-              onChange={(e) => setNewPlaylistTitle(e.target.value)}
-              placeholder="La mia fantastica playlist"
-              className="w-full bg-white/5 border border-white/10 rounded py-2 px-3 focus:outline-none focus:border-blue-400 text-white placeholder-cyan-100/30 transition-colors"
-            />
-            <button
-              type="submit"
-              className="w-full bg-gradient-to-r from-blue-600 to-sky-500 text-white font-bold rounded-full py-2 hover:shadow-[0_0_15px_rgba(52,211,153,0.4)] transition-all"
-            >
-              Crea
-            </button>
-          </form>
+        <DialogContent className="bg-black/80 backdrop-blur-2xl border-white/20 text-white shadow-2xl p-0 overflow-hidden">
+          <div className="p-6">
+            <DialogHeader>
+              <DialogTitle className="text-blue-50 text-xl font-bold mb-4">Nuova Playlist</DialogTitle>
+            </DialogHeader>
+
+            <Tabs defaultValue="manual" className="w-full">
+              <TabsList className="w-full grid grid-cols-2 mb-6 bg-white/5 border border-white/10 p-1 rounded-xl">
+                <TabsTrigger value="manual" className="rounded-lg data-[state=active]:bg-white/10 data-[state=active]:text-white">Manuale</TabsTrigger>
+                <TabsTrigger value="smart" className="rounded-lg data-[state=active]:bg-gradient-to-r data-[state=active]:from-indigo-500 data-[state=active]:to-purple-500 data-[state=active]:text-white">Smart (AI)</TabsTrigger>
+              </TabsList>
+              
+              <TabsContent value="manual" className="mt-0 outline-none">
+                <form onSubmit={addPlaylist} className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold uppercase tracking-wider text-blue-200/50">Nome Playlist</label>
+                    <input
+                      value={newPlaylistTitle}
+                      onChange={(e) => setNewPlaylistTitle(e.target.value)}
+                      placeholder="La mia fantastica playlist..."
+                      className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 focus:outline-none focus:border-blue-400 text-white placeholder-blue-200/20 transition-all font-medium"
+                    />
+                  </div>
+                  
+                  <div className="flex items-center gap-3 py-2">
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={isCollabToggle}
+                      onClick={() => setIsCollabToggle(!isCollabToggle)}
+                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors focus:outline-none ${isCollabToggle ? 'bg-sky-500' : 'bg-white/10'}`}
+                    >
+                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isCollabToggle ? 'translate-x-6' : 'translate-x-1'}`} />
+                    </button>
+                    <div>
+                      <div className="text-sm font-medium text-white flex items-center gap-2">
+                        <Users className="w-4 h-4 text-blue-300" />
+                        Playlist Collaborativa
+                      </div>
+                      <p className="text-xs text-blue-200/50">Chiunque abbia il link può aggiungere brani.</p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={!newPlaylistTitle.trim()}
+                    className="w-full mt-4 bg-gradient-to-r from-blue-600 to-sky-500 text-white font-bold rounded-xl py-3 hover:shadow-[0_0_15px_rgba(56,189,248,0.4)] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Crea Playlist
+                  </button>
+                </form>
+              </TabsContent>
+
+              <TabsContent value="smart" className="mt-0 outline-none">
+                <form onSubmit={generateSmartPlaylist} className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold uppercase tracking-wider text-purple-300/50 flex items-center gap-1">
+                      <Sparkles className="w-3 h-3" /> Chiedi all&apos;AI
+                    </label>
+                    <textarea
+                      value={smartPrompt}
+                      onChange={(e) => setSmartPrompt(e.target.value)}
+                      placeholder="Una playlist perfetta per un viaggio on the road in estate..."
+                      className="w-full h-24 resize-none bg-white/5 border border-purple-500/30 rounded-xl py-3 px-4 focus:outline-none focus:border-purple-400 text-white placeholder-purple-200/20 transition-all font-medium"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold uppercase tracking-wider text-blue-200/50">Nome Playlist</label>
+                    <input
+                      value={newPlaylistTitle}
+                      onChange={(e) => setNewPlaylistTitle(e.target.value)}
+                      placeholder="Estate 2024..."
+                      className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 focus:outline-none focus:border-blue-400 text-white placeholder-blue-200/20 transition-all font-medium"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={!smartPrompt.trim() || !newPlaylistTitle.trim() || generatingSmart}
+                    className="w-full mt-4 bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-bold rounded-xl py-3 hover:shadow-[0_0_15px_rgba(168,85,247,0.4)] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {generatingSmart ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin" /> Creazione in corso...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-5 h-5" /> Genera Playlist Magica
+                      </>
+                    )}
+                  </button>
+                </form>
+              </TabsContent>
+            </Tabs>
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -1320,13 +1467,25 @@ export function MainContent({
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
-                        <div className="w-full aspect-square bg-white/5 rounded-lg mb-4 flex items-center justify-center border border-white/10 shadow-inner group-hover:bg-white/10 transition-colors">
+                        <div className="w-full aspect-square bg-white/5 rounded-lg mb-4 flex relative items-center justify-center border border-white/10 shadow-inner group-hover:bg-white/10 transition-colors">
                           <ListMusic className="w-12 h-12 text-blue-200/40 group-hover:text-blue-300/80 transition-colors" />
+                          {p.isCollaborative && (
+                            <div className="absolute bottom-2 left-2 bg-purple-500/80 text-white text-[9px] uppercase tracking-widest px-2 py-0.5 rounded-full font-bold shadow-md">
+                              Collab
+                            </div>
+                          )}
+                          {!p.isCollaborative && p.isPublic && (
+                            <div className="absolute bottom-2 left-2 bg-blue-500/80 text-white text-[9px] uppercase tracking-widest px-2 py-0.5 rounded-full font-bold shadow-md">
+                              Pubblica
+                            </div>
+                          )}
                         </div>
                         <h3 className="font-bold text-white text-sm truncate mb-1">
                           {p.title}
                         </h3>
-                        <p className="text-xs text-blue-200/60">Playlist</p>
+                        <p className="text-xs text-blue-200/60">
+                          {p.ownerId !== user?.uid ? "Condivisa con te" : "Playlist"}
+                        </p>
                       </div>
                     ))}
                   </div>

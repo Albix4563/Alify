@@ -2,11 +2,9 @@ import type {Metadata} from 'next';
 import './globals.css';
 import { Inter } from "next/font/google";
 import { cn } from "@/lib/utils";
-import { AuthProvider } from '@/lib/auth-context';
 import { BackgroundEffects } from '@/components/BackgroundEffects';
 import { InstallPrompt } from '@/components/InstallPrompt';
-
-import { Toaster } from 'sonner';
+import { Providers } from '@/components/Providers';
 
 const inter = Inter({subsets:['latin'],variable:'--font-sans'});
 
@@ -33,11 +31,10 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
     <html lang="en" className={cn("font-sans", inter.variable)} suppressHydrationWarning>
       <body suppressHydrationWarning className="bg-background text-white">
         <BackgroundEffects />
-        <AuthProvider>
+        <Providers>
           {children}
           <InstallPrompt />
-          <Toaster theme="dark" position="top-center" toastOptions={{ className: 'bg-black/80 backdrop-blur-md text-white border-white/10 shadow-2xl' }} />
-        </AuthProvider>
+        </Providers>
       </body>
     </html>
   );
