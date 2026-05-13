@@ -69,6 +69,7 @@ export function Player() {
     if (currentTrack) {
         setCurrentTime(0);
         setDuration(0);
+        setIsReady(false); // Reset ready state so handlePlayerReady triggers fresh autoplay
         if (window.innerWidth < 768) {
            setIsMobileExpanded(true);
         }
@@ -214,9 +215,15 @@ export function Player() {
   }, [isPlaying, isReady]);
 
   useEffect(() => {
-    const handleVisibility = () => {
+    const handleVisibility = async () => {
         if (document.visibilityState === 'visible' && isPlaying) {
-             safePlayerCall('playVideo');
+             // Re-sync YouTube player when returning to foreground
+             await safePlayerCall('playVideo');
+             audioRef.current?.play().catch(() => {});
+        }
+        if (document.visibilityState === 'hidden' && isPlaying) {
+             // Keep the silent audio element alive so iOS doesn't kill the media session
+             audioRef.current?.play().catch(() => {});
         }
     };
     document.addEventListener('visibilitychange', handleVisibility);
@@ -279,9 +286,17 @@ export function Player() {
       if (currentTime > 0) {
           e.target.seekTo(currentTime);
       }
+      // Always start playback on ready — isPlaying is set to true by setCurrentTrack in store
+      // This fixes iOS where the useEffect doesn't re-fire because isPlaying was already true
       if (isPlaying) {
           e.target.playVideo();
           audioRef.current?.play().catch(() => {});
+      }
+      // Also force-sync the MediaSession state
+      if ('mediaSession' in navigator) {
+          try {
+              navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+          } catch (ex) {}
       }
   };
 
