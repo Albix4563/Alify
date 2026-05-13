@@ -146,10 +146,12 @@ export function Player() {
     if (loopMode === 'one' && playerRef.current) {
         await safePlayerCall('seekTo', [0]);
         await safePlayerCall('playVideo');
+        audioRef.current?.play().catch(() => {});
         return;
     }
     
     playNext();
+    audioRef.current?.play().catch(() => {});
   }, [loopMode, playNext]);
 
   useEffect(() => {
@@ -160,15 +162,18 @@ export function Player() {
             artwork: [{ src: currentTrack.thumbnailUrl, sizes: '512x512', type: 'image/jpeg' }]
         });
         navigator.mediaSession.setActionHandler('play', async () => {
+            audioRef.current?.play().catch(() => {});
             await safePlayerCall('playVideo');
             setIsPlaying(true);
         });
         navigator.mediaSession.setActionHandler('pause', async () => {
+            audioRef.current?.pause();
             await safePlayerCall('pauseVideo');
             setIsPlaying(false);
         });
         navigator.mediaSession.setActionHandler('nexttrack', () => handleNext());
         navigator.mediaSession.setActionHandler('previoustrack', async () => {
+            audioRef.current?.play().catch(() => {});
             await safePlayerCall('seekTo', [0]);
             setIsPlaying(true);
         });
@@ -184,8 +189,10 @@ export function Player() {
   const togglePlayPause = () => {
     setIsPlaying(!isPlaying);
     if (!isPlaying) {
+         audioRef.current?.play().catch(() => {});
          safePlayerCall('playVideo');
     } else {
+         audioRef.current?.pause();
          safePlayerCall('pauseVideo');
     }
   };
@@ -285,6 +292,7 @@ export function Player() {
       await safePlayerCall('seekTo', [0]);
       setCurrentTime(0);
     }
+    audioRef.current?.play().catch(() => {});
   };
 
   const handleSeekForward = () => {
@@ -308,7 +316,7 @@ export function Player() {
         loop 
         preload="auto"
         playsInline 
-        src="data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA" 
+        src="/assets/silence.wav" 
         style={{ display: 'none' }} 
       />
       <div 
