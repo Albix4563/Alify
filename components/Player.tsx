@@ -15,6 +15,7 @@ export function Player() {
   const { currentTrack, isPlaying, setIsPlaying, playNext, loopMode, setLoopMode, shuffleMode, setShuffleMode, videoExpanded, setVideoExpanded, queue, setQueue, audioQuality } = usePlayerStore();
   const playerRef = useRef<any>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
+  const isTrackChangingRef = useRef(false);
   const [isReady, setIsReady] = useState(false);
   const [isFetchingDJ, setIsFetchingDJ] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -69,11 +70,24 @@ export function Player() {
     if (currentTrack) {
         setCurrentTime(0);
         setDuration(0);
-        setIsReady(false); // Reset ready state so handlePlayerReady triggers fresh autoplay
         if (window.innerWidth < 768) {
            setIsMobileExpanded(true);
         }
+        // Guard against YouTube's transient onPause during track transition
+        isTrackChangingRef.current = true;
+        const playTimer = setTimeout(() => {
+            isTrackChangingRef.current = false;
+            // Force playback after YouTube has loaded the new video
+            safePlayerCall('playVideo');
+            audioRef.current?.play().catch(() => {});
+            setIsPlaying(true);
+        }, 800);
+        // Cleanup timer if track changes again quickly
+        return () => clearTimeout(playTimer);
     }
+  }, [currentTrack?.videoId]);
+
+  useEffect(() => {
     if (user && currentTrack) {
         const historyTrack = {
             videoId: String(currentTrack.videoId || '').slice(0, 100),
@@ -283,20 +297,13 @@ export function Player() {
 
   const handlePlayerReady = (e: any) => {
       setIsReady(true);
+      isTrackChangingRef.current = false;
       if (currentTime > 0) {
           e.target.seekTo(currentTime);
       }
-      // Always start playback on ready — isPlaying is set to true by setCurrentTrack in store
-      // This fixes iOS where the useEffect doesn't re-fire because isPlaying was already true
       if (isPlaying) {
           e.target.playVideo();
           audioRef.current?.play().catch(() => {});
-      }
-      // Also force-sync the MediaSession state
-      if ('mediaSession' in navigator) {
-          try {
-              navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
-          } catch (ex) {}
       }
   };
 
@@ -358,7 +365,7 @@ export function Player() {
                 opts={{ width: '100%', height: '100%', playerVars: { autoplay: 1, controls: 0, modestbranding: 1, rel: 0, showinfo: 0, disablekb: 1, playsinline: 1 } }}
                 onReady={handlePlayerReady}
                 onPlay={() => setIsPlaying(true)}
-                onPause={() => setIsPlaying(false)}
+                onPause={() => { if (!isTrackChangingRef.current) setIsPlaying(false); }}
                 onEnd={handleNext}
                 onError={() => { 
                    if (currentTrack) {
