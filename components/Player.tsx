@@ -23,7 +23,9 @@ export function Player() {
   const [isFetchingDJ, setIsFetchingDJ] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [streamDuration, setStreamDuration] = useState(0);
   const [isSeeking, setIsSeeking] = useState(false);
+  const seekingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isMobileExpanded, setIsMobileExpanded] = useState(false);
   const [scrollingDown, setScrollingDown] = useState(false);
   const [lastY, setLastY] = useState(0);
@@ -98,18 +100,25 @@ export function Player() {
     if (!currentTrack?.videoId) {
       setAudioUrl('');
       setIsStreamReady(false);
+      setStreamDuration(0);
       return;
     }
     setIsFetchingStream(true);
+    setIsStreamReady(false);
     fetch(`/api/youtube/stream?v=${currentTrack.videoId}`)
       .then(r => r.json())
       .then(data => {
         if (data.url) {
           setAudioUrl(data.url);
+          // Use API duration as fallback since mobile may not emit loadedmetadata
+          if (data.duration && data.duration > 0) {
+            setStreamDuration(data.duration);
+            setDuration(data.duration);
+          }
           if (audioRef.current) {
             audioRef.current.src = data.url;
             audioRef.current.load();
-            setIsStreamReady(true);
+            // NOTE: isStreamReady will be set by the 'canplay' event listener
           }
         } else {
           setAudioUrl('');
@@ -154,27 +163,64 @@ export function Player() {
       if (!isSeeking) setCurrentTime(audio.currentTime);
     };
     const onLoadedMeta = () => {
-      setDuration(audio.duration || 0);
+      const dur = audio.duration;
+      setDuration(dur && isFinite(dur) ? dur : streamDuration);
       setIsReady(true);
+    };
+    const onCanPlay = () => {
+      setIsStreamReady(true);
+      const dur = audio.duration;
+      if (dur && isFinite(dur)) {
+        setDuration(dur);
+      } else if (streamDuration > 0) {
+        setDuration(streamDuration);
+      }
+      // Auto-play if isPlaying is already true (track just loaded)
+      if (usePlayerStore.getState().isPlaying) {
+        audio.play().catch(() => {});
+      }
+    };
+    const onDurationChange = () => {
+      const dur = audio.duration;
+      if (dur && isFinite(dur)) {
+        setDuration(dur);
+      }
     };
     const onEnded = () => handleNext();
     const onPlay = () => setIsPlaying(true);
     const onPause = () => setIsPlaying(false);
+    const onError = () => {
+      console.warn('Audio element error:', audio.error);
+      toast.error('Errore di riproduzione audio. Riprovo...');
+      // Retry loading after a brief delay
+      setTimeout(() => {
+        if (audioUrl && audioRef.current) {
+          audioRef.current.src = audioUrl;
+          audioRef.current.load();
+        }
+      }, 1500);
+    };
 
     audio.addEventListener('timeupdate', onTimeUpdate);
     audio.addEventListener('loadedmetadata', onLoadedMeta);
+    audio.addEventListener('canplay', onCanPlay);
+    audio.addEventListener('durationchange', onDurationChange);
     audio.addEventListener('ended', onEnded);
     audio.addEventListener('play', onPlay);
     audio.addEventListener('pause', onPause);
+    audio.addEventListener('error', onError);
 
     return () => {
       audio.removeEventListener('timeupdate', onTimeUpdate);
       audio.removeEventListener('loadedmetadata', onLoadedMeta);
+      audio.removeEventListener('canplay', onCanPlay);
+      audio.removeEventListener('durationchange', onDurationChange);
       audio.removeEventListener('ended', onEnded);
       audio.removeEventListener('play', onPlay);
       audio.removeEventListener('pause', onPause);
+      audio.removeEventListener('error', onError);
     };
-  }, [isSeeking, handleNext]);
+  }, [isSeeking, handleNext, streamDuration, audioUrl]);
 
   const handleNext = useCallback(async () => {
     if (loopMode === 'one' && playerRef.current) {
@@ -255,7 +301,22 @@ export function Player() {
     const next = !isPlaying;
     setIsPlaying(next);
     if (next) {
-      audioRef.current?.play().catch(() => {});
+      const audio = audioRef.current;
+      if (audio) {
+        audio.play().catch((e) => {
+          console.warn('Play failed on toggle, will retry:', e);
+          // Retry after a short delay (mobile gesture propagation)
+          setTimeout(() => {
+            audio.play().catch(() => {
+              toast.error('Impossibile avviare la riproduzione. Tocca di nuovo.');
+            });
+          }, 300);
+        });
+      }
+      // Also kick the YouTube iframe video
+      if (isReady && playerRef.current) {
+        safePlayerCall('playVideo');
+      }
     } else {
       audioRef.current?.pause();
     }
@@ -263,7 +324,16 @@ export function Player() {
 
   useEffect(() => {
      if (isPlaying) {
-         audioRef.current?.play().catch(() => {});
+         // Only attempt play when the stream is actually ready
+         if (isStreamReady && audioRef.current) {
+           audioRef.current.play().catch((e) => {
+             console.warn('Auto-play blocked or failed:', e);
+             // Retry once after a brief delay
+             setTimeout(() => {
+               audioRef.current?.play().catch(() => {});
+             }, 500);
+           });
+         }
          if (isReady && playerRef.current) safePlayerCall('playVideo');
      } else {
          audioRef.current?.pause();
@@ -275,7 +345,18 @@ export function Player() {
              navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
          } catch (e) {}
      }
-  }, [isPlaying, isReady]);
+
+     // Update MediaSession position state for lock screen controls
+     if ('mediaSession' in navigator && duration > 0) {
+         try {
+             navigator.mediaSession.setPositionState({
+               duration: duration,
+               playbackRate: 1,
+               position: Math.min(currentTime, duration),
+             });
+         } catch (e) {}
+     }
+  }, [isPlaying, isReady, isStreamReady]);
 
   useEffect(() => {
     const handleVisibility = () => {
@@ -285,12 +366,22 @@ export function Player() {
             }
             if (isPlaying) {
                 audioRef.current?.play().catch(() => {});
+                // Re-sync YouTube iframe video with current audio position
+                if (isReady && playerRef.current && audioRef.current) {
+                    try {
+                      const p = playerRef.current?.internalPlayer || playerRef.current?.getInternalPlayer?.();
+                      if (p && typeof p.seekTo === 'function') {
+                        p.seekTo(audioRef.current.currentTime, true);
+                        if (typeof p.playVideo === 'function') p.playVideo();
+                      }
+                    } catch (e) {}
+                }
             }
         }
     };
     document.addEventListener('visibilitychange', handleVisibility);
     return () => document.removeEventListener('visibilitychange', handleVisibility);
-  }, [isPlaying]);
+  }, [isPlaying, isReady]);
 
   const handlePrev = async () => {
     if (currentTime > 3) {
@@ -332,11 +423,29 @@ export function Player() {
   const handleSeekChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setIsSeeking(true);
     setCurrentTime(parseFloat(e.target.value));
+    // Safety: clear any previous timeout and set a new one
+    if (seekingTimeoutRef.current) clearTimeout(seekingTimeoutRef.current);
+    seekingTimeoutRef.current = setTimeout(() => {
+      setIsSeeking(false);
+    }, 3000);
   };
 
   const handleSeekCommit = () => {
+    if (seekingTimeoutRef.current) {
+      clearTimeout(seekingTimeoutRef.current);
+      seekingTimeoutRef.current = null;
+    }
     if (audioRef.current) {
       audioRef.current.currentTime = currentTime;
+    }
+    // Also sync YouTube iframe
+    if (isReady && playerRef.current) {
+      try {
+        const p = playerRef.current?.internalPlayer || playerRef.current?.getInternalPlayer?.();
+        if (p && typeof p.seekTo === 'function') {
+          p.seekTo(currentTime, true);
+        }
+      } catch (e) {}
     }
     setIsSeeking(false);
   };
@@ -355,11 +464,26 @@ export function Player() {
        triggerSeekAnimation('backward');
   };
 
+  // Periodically sync YouTube iframe video with audio position
+  useEffect(() => {
+    if (!isPlaying || !isReady || !playerRef.current) return;
+    const syncInterval = setInterval(() => {
+      const audio = audioRef.current;
+      if (!audio) return;
+      try {
+        const p = playerRef.current?.internalPlayer || playerRef.current?.getInternalPlayer?.();
+        if (p && typeof p.seekTo === 'function') {
+          p.seekTo(audio.currentTime, true);
+        }
+      } catch (e) {}
+    }, 5000);
+    return () => clearInterval(syncInterval);
+  }, [isPlaying, isReady]);
+
   return (
     <>
       <audio 
         ref={audioRef} 
-        loop 
         preload="auto"
         playsInline 
         webkit-playsinline="true"
