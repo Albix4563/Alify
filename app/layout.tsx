@@ -14,6 +14,7 @@ export const viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
+  viewportFit: 'cover',
 };
 
 export const metadata: Metadata = {
@@ -23,6 +24,11 @@ export const metadata: Metadata = {
   icons: {
     icon: '/assets/logo.png',
     apple: '/assets/logo.png',
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'Albify',
   },
 };
 
