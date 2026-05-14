@@ -862,8 +862,6 @@ export function Player() {
     console.log('[PiP] togglePiP called. readyState:', video.readyState, 'paused:', video.paused);
     
     if (video.paused) {
-      // Don't await this, as waiting for the promise ticks will lose the user gesture context
-      // which is strictly required for PiP on iOS/Safari
       video.play().catch((err) => {
         console.warn('[PiP] background play failed', err);
       });
@@ -882,18 +880,15 @@ export function Player() {
         } else if ((video as any).webkitSupportsPresentationMode && (video as any).webkitSupportsPresentationMode('picture-in-picture')) {
           (video as any).webkitSetPresentationMode('picture-in-picture');
         } else {
-          alert('PiP non supportato su questo dispositivo/browser');
+          console.warn('PiP non supportato su questo dispositivo/browser');
         }
       }
     } catch (e: any) {
       console.warn('[PiP] failed to enter PiP:', e);
       // Fallback for iOS if video is not ready
       if (video.readyState === 0) {
-        alert('Caricamento video in corso, riprova tra un istante');
         video.load();
         void video.play();
-      } else {
-        alert('Errore PiP: ' + e.message);
       }
     }
   }, []);
@@ -1106,14 +1101,6 @@ export function Player() {
               </span>
 
               <div className="flex items-center gap-1 -mr-2">
-                <button
-                  onClick={togglePiP}
-                  className="p-2 text-white hover:bg-white/10 rounded-full transition-colors drop-shadow-lg"
-                  title="Picture in Picture"
-                  type="button"
-                >
-                  <PictureInPicture2 className="w-5 h-5" />
-                </button>
                 <button
                   onClick={() => setVideoExpanded(!videoExpanded)}
                   className="p-2 text-white hover:bg-white/10 rounded-full transition-colors drop-shadow-lg"
@@ -1532,14 +1519,6 @@ export function Player() {
           </div>
 
           <div className="hidden md:flex items-center justify-end gap-2 md:w-[30%]">
-            <button
-              className="p-2 text-blue-200/60 hover:text-white transition-colors"
-              onClick={togglePiP}
-              title="Picture in Picture"
-              type="button"
-            >
-              <PictureInPicture2 className="w-5 h-5" />
-            </button>
             <button
               className="p-2 text-blue-200/60 hover:text-white transition-colors"
               onClick={() => setVideoExpanded(!videoExpanded)}
