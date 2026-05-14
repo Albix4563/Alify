@@ -57,7 +57,7 @@ export default function Home() {
         </main>
       </div>
       <BottomNav currentView={currentView} setCurrentView={setCurrentView} />
-      <Player />
+      <Player currentView={currentView} />
     </div>
   );
 }
