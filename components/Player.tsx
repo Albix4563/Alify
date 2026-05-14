@@ -123,7 +123,7 @@ export function Player() {
       .finally(() => setIsFetchingStream(false));
   }, [currentTrack?.videoId]);
 
-  const safePlayerCall = async (method: string, args: any[] = []) => {
+  const safePlayerCall = useCallback(async (method: string, args: any[] = []) => {
     try {
       const audio = audioRef.current;
       if (!audio) return;
@@ -144,7 +144,17 @@ export function Player() {
     } catch (e) {
       console.warn(`SafePlayerCall ${method} error:`, e);
     }
-  };
+  }, []);
+
+  const handleNext = useCallback(async () => {
+    if (loopMode === 'one' && playerRef.current) {
+        await safePlayerCall('seekTo', [0]);
+        await safePlayerCall('playVideo');
+        return;
+    }
+    
+    playNext();
+  }, [loopMode, playNext, safePlayerCall]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -176,16 +186,6 @@ export function Player() {
     };
   }, [isSeeking, handleNext, setIsPlaying]);
 
-  const handleNext = useCallback(async () => {
-    if (loopMode === 'one' && playerRef.current) {
-        await safePlayerCall('seekTo', [0]);
-        await safePlayerCall('playVideo');
-        return;
-    }
-    
-    playNext();
-  }, [loopMode, playNext]);
-
   useEffect(() => {
     if (currentTrack && 'mediaSession' in navigator) {
         navigator.mediaSession.metadata = new MediaMetadata({
@@ -213,7 +213,7 @@ export function Player() {
             }
         });
     }
-  }, [currentTrack, setIsPlaying, handleNext]);
+  }, [currentTrack, setIsPlaying, handleNext, safePlayerCall]);
 
   useEffect(() => {
     if ('audioSession' in navigator) {
@@ -275,7 +275,7 @@ export function Player() {
              navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
          } catch (e) {}
      }
-  }, [isPlaying, isReady]);
+  }, [isPlaying, isReady, safePlayerCall]);
 
   useEffect(() => {
     const handleVisibility = () => {
