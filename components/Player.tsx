@@ -66,6 +66,7 @@ export function Player() {
   const playAttemptRef = useRef(0);
 
   const [isReady, setIsReady] = useState(false);
+  const [nativeControlsEnabled, setNativeControlsEnabled] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [isMobileExpanded, setIsMobileExpanded] = useState(false);
   const [scrollingDown, setScrollingDown] = useState(false);
@@ -329,6 +330,28 @@ export function Player() {
     }
   };
 
+  const enablePictureInPictureMode = useCallback(async () => {
+    if (!currentTrack) return;
+    const time = await callYoutube<number>('getCurrentTime');
+    if (typeof time === 'number' && Number.isFinite(time)) {
+      setCurrentTime(time);
+    }
+    desiredPlayingRef.current = true;
+    setNativeControlsEnabled(true);
+    setVideoExpanded(true);
+    setIsMobileExpanded(false);
+    void startYoutubePlayback('manual-pip-mode');
+    toast.message('Modalità PiP pronta', {
+      description:
+        'Usa il pulsante PiP nei controlli del video, poi esci dall’app.',
+    });
+  }, [
+    callYoutube,
+    currentTrack,
+    setVideoExpanded,
+    startYoutubePlayback,
+  ]);
+
   const toggleLoop = () => {
     if (loopMode === 'off') {
       setLoopMode('all');
@@ -350,6 +373,19 @@ export function Player() {
       youtubePlayerRef.current = player;
       setIsReady(true);
       trackChangingRef.current = false;
+
+      try {
+        const iframe = player.getIframe?.();
+        if (iframe) {
+          iframe.setAttribute(
+            'allow',
+            'autoplay; encrypted-media; picture-in-picture; fullscreen',
+          );
+          iframe.setAttribute('allowfullscreen', 'true');
+        }
+      } catch {
+        // Alcuni browser/player possono non esporre getIframe.
+      }
 
       try {
         if (typeof player.unMute === 'function') {
@@ -716,17 +752,20 @@ export function Player() {
           }
         >
           <YouTube
+            key={`${currentTrack?.videoId || 'empty'}-${
+              nativeControlsEnabled ? 'native-controls' : 'custom-controls'
+            }`}
             videoId={currentTrack?.videoId || ''}
             opts={{
               width: '100%',
               height: '100%',
               playerVars: {
                 autoplay: 1,
-                controls: 0,
+                controls: nativeControlsEnabled ? 1 : 0,
                 modestbranding: 1,
                 rel: 0,
                 showinfo: 0,
-                disablekb: 1,
+                disablekb: nativeControlsEnabled ? 0 : 1,
                 playsinline: 1,
                 enablejsapi: 1,
                 origin:
@@ -803,6 +842,14 @@ export function Player() {
               </span>
 
               <div className="flex items-center gap-1 -mr-2">
+                <button
+                  onClick={() => void enablePictureInPictureMode()}
+                  className="p-2 text-white hover:bg-white/10 rounded-full transition-colors drop-shadow-lg"
+                  type="button"
+                  title="Attiva Picture-in-Picture"
+                >
+                  <PictureInPicture2 className="w-5 h-5" />
+                </button>
                 <button
                   onClick={() => setVideoExpanded(!videoExpanded)}
                   className="p-2 text-white hover:bg-white/10 rounded-full transition-colors drop-shadow-lg"
