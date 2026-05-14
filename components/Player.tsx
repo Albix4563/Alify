@@ -181,18 +181,25 @@ export function Player() {
       const video = pipVideoRef.current;
       if (video && canvasRef.current) {
          if (!video.srcObject && !video.src) {
-            try {
-               const canvasStream = (canvasRef.current as any).captureStream(15);
-               if (dest.stream) {
-                  const audioTrack = dest.stream.getAudioTracks()[0];
-                  if (audioTrack) {
-                     canvasStream.addTrack(audioTrack);
-                  }
-               }
-               video.srcObject = canvasStream;
-            } catch (e) {
-               console.warn("CaptureStream failed", e);
+            const isIOS = typeof navigator !== 'undefined' && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+            
+            if (isIOS) {
                video.src = "data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAAIZnJlZQAAAAxtZGF0AAAAAAABaG1vb3YAAABsbXZoZAAAAAB8JbIEfCWyBAAAMgEAAExLAAEAAAEAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAABidHJhawAAAFx0a2hkAAAAA3wlshR8JbIUAAAAAQAAAAAAAExLAAAAAAAAAAAAAAAAAQAAAAABAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAeAAAAHgAAAAAAJGVkdHMAAAAcZWxzdAAAAAAAAAABAAAATEsAAAEAAAABAAAAAAARrW1kaWEAAAAgbWRoZAAAAAB8JbIEfCWyBAAAMgEAACxVAAAAAAAAACxoZGxyAAAAAAAAAAB2aWRlAAAAAAAAAAAAAAAAAAAAVmlkZW9IYW5kbGVyAAAAAAANJG1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAAACcdHN0YgAAABJzdHNkAAAAAAAAAAEAAAASYXZjMQAAAAAAAQAAAAAAAAAAAAAAAAAAAAAeAB4ASAAAAEgAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABj//wAAAA5hdmNDAwED/wAA/wAAAAAAAQAAABRzdHRzAAAAAAAAAAEAAAABAAACXgAAABxzdHNjAAAAAAAAAAEAAAABAAAAAQAAAAEAAAAcc3RzegAAAAAAAAAAAAAAAQAAABsAAAAUc3RjbwAAAAAAAAABAAAAMAAAADh1ZHRhAAAAMG1ldGEAAAAAAAAAIWhkbHIAAAAAAAAAAG1kaXJhcHBsAAAAAAAAAAAAAAAA";
+               video.load();
+            } else {
+              try {
+                 const canvasStream = (canvasRef.current as any).captureStream(15);
+                 if (dest.stream) {
+                    const audioTrack = dest.stream.getAudioTracks()[0];
+                    if (audioTrack) {
+                       canvasStream.addTrack(audioTrack);
+                    }
+                 }
+                 video.srcObject = canvasStream;
+              } catch (e) {
+                 console.warn("CaptureStream failed", e);
+                 video.src = "data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAAIZnJlZQAAAAxtZGF0AAAAAAABaG1vb3YAAABsbXZoZAAAAAB8JbIEfCWyBAAAMgEAAExLAAEAAAEAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAABidHJhawAAAFx0a2hkAAAAA3wlshR8JbIUAAAAAQAAAAAAAExLAAAAAAAAAAAAAAAAAQAAAAABAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAeAAAAHgAAAAAAJGVkdHMAAAAcZWxzdAAAAAAAAAABAAAATEsAAAEAAAABAAAAAAARrW1kaWEAAAAgbWRoZAAAAAB8JbIEfCWyBAAAMgEAACxVAAAAAAAAACxoZGxyAAAAAAAAAAB2aWRlAAAAAAAAAAAAAAAAAAAAVmlkZW9IYW5kbGVyAAAAAAANJG1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAAACcdHN0YgAAABJzdHNkAAAAAAAAAAEAAAASYXZjMQAAAAAAAQAAAAAAAAAAAAAAAAAAAAAeAB4ASAAAAEgAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABj//wAAAA5hdmNDAwED/wAA/wAAAAAAAQAAABRzdHRzAAAAAAAAAAEAAAABAAACXgAAABxzdHNjAAAAAAAAAAEAAAABAAAAAQAAAAEAAAAcc3RzegAAAAAAAAAAAAAAAQAAABsAAAAUc3RjbwAAAAAAAAABAAAAMAAAADh1ZHRhAAAAMG1ldGEAAAAAAAAAIWhkbHIAAAAAAAAAAG1kaXJhcHBsAAAAAAAAAAAAAAAA";
+              }
             }
          }
          
