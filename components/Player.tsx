@@ -127,6 +127,10 @@ export function Player() {
     const requestId = streamRequestRef.current + 1;
     streamRequestRef.current = requestId;
 
+    // Preserve play intent: if we were playing or there's a new playRequestId, keep wanting to play
+    const wantsToPlay = desiredPlayingRef.current || usePlayerStore.getState().playRequestId > lastPlayRequestRef.current;
+    desiredPlayingRef.current = wantsToPlay;
+
     setCurrentTime(0);
     setDuration(0);
     setIsStreamReady(false);
@@ -152,6 +156,11 @@ export function Player() {
           if (audioRef.current) {
             audioRef.current.src = data.url;
             audioRef.current.load();
+          }
+          // Restore play intent: the store's playRequestId may have been incremented for this track
+          const storeState = usePlayerStore.getState();
+          if (storeState.playRequestId > lastPlayRequestRef.current) {
+            desiredPlayingRef.current = true;
           }
           setStreamVideoId(videoId);
           setIsStreamReady(true);
@@ -325,7 +334,12 @@ export function Player() {
       void syncVideoToAudio(true);
     };
     const onPause = () => {
-      if (isSwitchingTrackRef.current && desiredPlayingRef.current) {
+      // Ignore pause events when switching tracks (the old track being stopped)
+      if (isSwitchingTrackRef.current) {
+        return;
+      }
+      // Also ignore if the audio element's src is empty/unset (means old track was cleared)
+      if (!audio.src || audio.src === '' || audio.src === window.location.href) {
         return;
       }
       desiredPlayingRef.current = false;
@@ -393,14 +407,30 @@ export function Player() {
 
     lastPlayRequestRef.current = Math.max(lastPlayRequestRef.current, playRequestId);
     desiredPlayingRef.current = true;
+    isSwitchingTrackRef.current = false; // Stream is ready, we're no longer switching
     void safePlayerCall('playVideo').then((started) => {
-      if (!started) retryPlayForCurrentTrack();
+      if (!started) {
+        // Use a direct timeout instead of the closure-captured retryPlayForCurrentTrack
+        // to avoid stale isStreamReady/streamVideoId values
+        clearRetryPlayTimeout();
+        const vid = currentTrack.videoId;
+        retryPlayTimeoutRef.current = window.setTimeout(() => {
+          retryPlayTimeoutRef.current = null;
+          if (
+            desiredPlayingRef.current &&
+            currentTrackIdRef.current === vid &&
+            audioRef.current?.paused
+          ) {
+            void safePlayerCall('playVideo');
+          }
+        }, 300);
+      }
     });
   }, [
+    clearRetryPlayTimeout,
     currentTrack,
     isStreamReady,
     playRequestId,
-    retryPlayForCurrentTrack,
     safePlayerCall,
     streamVideoId,
     syncVideoToAudio,
