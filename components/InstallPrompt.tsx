@@ -78,7 +78,7 @@ export function InstallPrompt() {
                  </div>
                  <div>
                      <h3 className="font-bold text-white text-base">Installa Albify</h3>
-                     <p className="text-sm text-white/50 leading-tight mt-0.5">Riproduzione in background garantita</p>
+                     <p className="text-sm text-white/50 leading-tight mt-0.5">Accesso più rapido dalla schermata Home</p>
                  </div>
              </div>
              <button onClick={dismissPrompt} className="p-1.5 rounded-full bg-white/5 hover:bg-white/10 text-white/50 hover:text-white transition-colors">

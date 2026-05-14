@@ -40,8 +40,6 @@ const wait = (ms: number) =>
     window.setTimeout(resolve, ms);
   });
 
-const DUMMY_VIDEO_SRC = "data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAAIZnJlZQAAAAxtZGF0AAAAAAABaG1vb3YAAABsbXZoZAAAAAB8JbIEfCWyBAAAMgEAAExLAAEAAAEAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAABidHJhawAAAFx0a2hkAAAAA3wlshR8JbIUAAAAAQAAAAAAAExLAAAAAAAAAAAAAAAAAQAAAAABAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAeAAAAHgAAAAAAJGVkdHMAAAAcZWxzdAAAAAAAAAABAAAATEsAAAEAAAABAAAAAAARrW1kaWEAAAAgbWRoZAAAAAB8JbIEfCWyBAAAMgEAACxVAAAAAAAAACxoZGxyAAAAAAAAAAB2aWRlAAAAAAAAAAAAAAAAAAAAVmlkZW9IYW5kbGVyAAAAAAANJG1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAAACcdHN0YgAAABJzdHNkAAAAAAAAAAEAAAASYXZjMQAAAAAAAQAAAAAAAAAAAAAAAAAAAAAeAB4ASAAAAEgAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABj//wAAAA5hdmNDAwED/wAA/wAAAAAAAQAAABRzdHRzAAAAAAAAAAEAAAABAAACXgAAABxzdHNjAAAAAAAAAAEAAAABAAAAAQAAAAEAAAAcc3RzegAAAAAAAAAAAAAAAQAAABsAAAAUc3RjbwAAAAAAAAABAAAAMAAAADh1ZHRhAAAAMG1ldGEAAAAAAAAAIWhkbHIAAAAAAAAAAG1kaXJhcHBsAAAAAAAAAAAAAAAA";
-
 export function Player() {
   const { user } = useAuth();
 
@@ -61,17 +59,11 @@ export function Player() {
   } = usePlayerStore();
 
   const youtubePlayerRef = useRef<any | null>(null);
-  const pipVideoRef = useRef<HTMLVideoElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const animFrameRef = useRef<number | null>(null);
 
   const desiredPlayingRef = useRef(false);
   const trackChangingRef = useRef(false);
   const visibilityGuardRef = useRef(false);
   const playAttemptRef = useRef(0);
-
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const oscillatorRef = useRef<OscillatorNode | null>(null);
 
   const [isReady, setIsReady] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
@@ -142,93 +134,6 @@ export function Player() {
     [],
   );
 
-  const ensureKeepAliveAudio = useCallback(async () => {
-    try {
-      const AudioCtx =
-        window.AudioContext || (window as any).webkitAudioContext;
-
-      if (!AudioCtx) return;
-
-      if (!audioContextRef.current) {
-        audioContextRef.current = new AudioCtx();
-      }
-
-      const context = audioContextRef.current;
-
-      if (context.state === 'suspended') {
-        await context.resume();
-      }
-
-      let dest = (context as any).__pipDest;
-      if (!dest) {
-         dest = context.createMediaStreamDestination();
-         (context as any).__pipDest = dest;
-      }
-
-      if (!oscillatorRef.current) {
-        const oscillator = context.createOscillator();
-        const gain = context.createGain();
-
-        oscillator.frequency.value = 40;
-        gain.gain.value = 0.00001;
-
-        oscillator.connect(gain);
-        gain.connect(dest);
-        gain.connect(context.destination);
-        oscillator.start();
-
-        oscillatorRef.current = oscillator;
-      }
-      
-      const video = pipVideoRef.current;
-      if (video && canvasRef.current) {
-         if (!video.srcObject) {
-            const isIOS = typeof navigator !== 'undefined' && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
-            
-            if (!isIOS) {
-              try {
-                 const canvasStream = (canvasRef.current as any).captureStream(15);
-                 if (dest.stream) {
-                    const audioTrack = dest.stream.getAudioTracks()[0];
-                    if (audioTrack) {
-                       canvasStream.addTrack(audioTrack);
-                    }
-                 }
-                 video.srcObject = canvasStream;
-                 video.src = ''; // Clear default src when using srcObject
-              } catch (e) {
-                 console.warn("CaptureStream failed", e);
-              }
-            }
-         }
-         
-         video.loop = true;
-         video.muted = false;
-         video.volume = 0.001;
-         
-         if (video.readyState === 0) {
-           video.load();
-         }
-         
-         void video.play();
-      }
-    } catch {
-      // Failed
-    }
-  }, []);
-
-  const stopKeepAliveAudio = useCallback(() => {
-    pipVideoRef.current?.pause();
-
-    try {
-      oscillatorRef.current?.stop();
-    } catch {
-      // Già fermo.
-    }
-
-    oscillatorRef.current = null;
-  }, []);
-
   const playYoutubeNow = useCallback((reason = 'manual') => {
     const player = youtubePlayerRef.current;
 
@@ -263,9 +168,6 @@ export function Player() {
 
       // Chiamata immediata, senza await prima.
       playYoutubeNow(reason);
-
-      // Keep-alive in parallelo, non deve ritardare playVideo().
-      void ensureKeepAliveAudio();
 
       for (let attempt = 0; attempt < 12; attempt += 1) {
         if (attemptId !== playAttemptRef.current) return false;
@@ -315,7 +217,6 @@ export function Player() {
     },
     [
       currentTrack,
-      ensureKeepAliveAudio,
       playYoutubeNow,
       setIsPlaying,
       setMediaState,
@@ -328,10 +229,9 @@ export function Player() {
 
     await callYoutube('pauseVideo');
 
-    stopKeepAliveAudio();
     setIsPlaying(false);
     setMediaState('paused');
-  }, [callYoutube, setIsPlaying, setMediaState, stopKeepAliveAudio]);
+  }, [callYoutube, setIsPlaying, setMediaState]);
 
   const handleNext = useCallback(async () => {
     desiredPlayingRef.current = true;
@@ -343,12 +243,10 @@ export function Player() {
       return;
     }
 
-    void ensureKeepAliveAudio();
     playNext();
   }, [
     callYoutube,
     currentTrack,
-    ensureKeepAliveAudio,
     loopMode,
     playNext,
     startYoutubePlayback,
@@ -581,51 +479,27 @@ export function Player() {
       setIsMobileExpanded(false);
       setVideoExpanded(false);
 
-      stopKeepAliveAudio();
       return;
-    }
-
-    desiredPlayingRef.current = true;
-    trackChangingRef.current = true;
-
-    setCurrentTime(0);
-    setDuration(0);
-    setIsPlaying(false);
-
-    // Se abbiamo già il player e la canzone è uguale (o stiamo solo forzando play), ripartiamo da capo
-    if (youtubePlayerRef.current && isReady) {
-       try {
-         youtubePlayerRef.current.seekTo(0);
-         if (desiredPlayingRef.current) {
-           youtubePlayerRef.current.playVideo();
-         }
-       } catch (error) {}
     }
 
     if (window.innerWidth < 768) {
       setIsMobileExpanded(true);
     }
+  }, [currentTrack, setMediaState, setVideoExpanded]);
 
-    void ensureKeepAliveAudio();
-
-    const fallbackTimer = window.setTimeout(() => {
-      if (desiredPlayingRef.current) {
-        void startYoutubePlayback('track-change-fallback');
-      }
-    }, 1200);
-
-    return () => {
-      window.clearTimeout(fallbackTimer);
-    };
-  }, [
-    currentTrack?.videoId,
-    playRequestId,
-    ensureKeepAliveAudio,
-    setIsPlaying,
-    setMediaState,
-    startYoutubePlayback,
-    stopKeepAliveAudio,
-  ]);
+  useEffect(() => {
+    if (!currentTrack || !isReady || !youtubePlayerRef.current) return;
+    desiredPlayingRef.current = true;
+    trackChangingRef.current = true;
+    setCurrentTime(0);
+    setDuration(0);
+    try {
+      youtubePlayerRef.current.loadVideoById(currentTrack.videoId, 0);
+      setMediaState('playing');
+    } catch (error) {
+      console.warn('loadVideoById failed:', error);
+    }
+  }, [currentTrack?.videoId, playRequestId, isReady, setMediaState]);
 
   useEffect(() => {
     if (!user || !currentTrack) return;
@@ -748,103 +622,18 @@ export function Player() {
   ]);
 
   useEffect(() => {
-    if (!currentTrack) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.src = currentTrack.thumbnailUrl || '';
-
-    const draw = () => {
-      if (!ctx || !canvas) return;
-      
-      ctx.fillStyle = '#0a0a0a';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      
-      if (img.complete && img.naturalWidth > 0) {
-        ctx.globalAlpha = 0.3;
-        ctx.filter = 'blur(20px)';
-        ctx.drawImage(img, -50, -50, canvas.width + 100, canvas.height + 100);
-        
-        ctx.globalAlpha = 1.0;
-        ctx.filter = 'none';
-        
-        const size = 300;
-        const x = (canvas.width - size) / 2;
-        const y = 50;
-        
-        ctx.shadowColor = 'rgba(0,0,0,0.6)';
-        ctx.shadowBlur = 30;
-        ctx.shadowOffsetY = 15;
-        
-        ctx.save();
-        ctx.beginPath();
-        if ((ctx as any).roundRect) {
-           (ctx as any).roundRect(x, y, size, size, 20);
-        } else {
-           ctx.rect(x, y, size, size);
-        }
-        ctx.clip();
-        ctx.drawImage(img, x, y, size, size);
-        ctx.restore();
-        
-        ctx.shadowColor = 'transparent';
-      }
-      
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 28px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(currentTrack.title?.substring(0, 35) || '', canvas.width/2, 400);
-      
-      ctx.fillStyle = '#aaaaaa';
-      ctx.font = '22px sans-serif';
-      ctx.fillText(currentTrack.channelTitle?.substring(0, 35) || '', canvas.width/2, 440);
-      
-      animFrameRef.current = requestAnimationFrame(draw);
-    };
-
-    draw();
-
-    return () => {
-      if (animFrameRef.current) {
-        cancelAnimationFrame(animFrameRef.current);
-      }
-    };
-  }, [currentTrack]);
-
-  useEffect(() => {
     const handleVisibility = () => {
       if (document.visibilityState === 'hidden') {
+        visibilityGuardRef.current = true;
         if (desiredPlayingRef.current) {
-          visibilityGuardRef.current = true;
-          void ensureKeepAliveAudio();
           setMediaState('playing');
-          
-          const video = pipVideoRef.current;
-          if (video) {
-             try {
-                if (video.requestPictureInPicture && !document.pictureInPictureElement) {
-                   video.requestPictureInPicture().catch(() => {});
-                } else if ((video as any).webkitSupportsPresentationMode && (video as any).webkitPresentationMode !== 'picture-in-picture') {
-                   (video as any).webkitSetPresentationMode('picture-in-picture');
-                }
-             } catch(e) {}
-          }
         }
-
         return;
       }
 
-      if (document.visibilityState === 'visible') {
-        visibilityGuardRef.current = false;
-
-        if (desiredPlayingRef.current) {
-          void startYoutubePlayback('visibility-visible');
-        }
+      visibilityGuardRef.current = false;
+      if (desiredPlayingRef.current) {
+        void startYoutubePlayback('visibility-visible');
       }
     };
 
@@ -853,45 +642,7 @@ export function Player() {
     return () => {
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [ensureKeepAliveAudio, setMediaState, startYoutubePlayback]);
-
-  const togglePiP = useCallback(async () => {
-    const video = pipVideoRef.current;
-    if (!video) return;
-    
-    console.log('[PiP] togglePiP called. readyState:', video.readyState, 'paused:', video.paused);
-    
-    if (video.paused) {
-      video.play().catch((err) => {
-        console.warn('[PiP] background play failed', err);
-      });
-    }
-
-    try {
-      if (document.pictureInPictureElement) {
-        if (document.exitPictureInPicture) {
-          await document.exitPictureInPicture();
-        }
-      } else if ((video as any).webkitPresentationMode === 'picture-in-picture') {
-        (video as any).webkitSetPresentationMode('inline');
-      } else {
-        if (video.requestPictureInPicture) {
-          await video.requestPictureInPicture();
-        } else if ((video as any).webkitSupportsPresentationMode && (video as any).webkitSupportsPresentationMode('picture-in-picture')) {
-          (video as any).webkitSetPresentationMode('picture-in-picture');
-        } else {
-          console.warn('PiP non supportato su questo dispositivo/browser');
-        }
-      }
-    } catch (e: any) {
-      console.warn('[PiP] failed to enter PiP:', e);
-      // Fallback for iOS if video is not ready
-      if (video.readyState === 0) {
-        video.load();
-        void video.play();
-      }
-    }
-  }, []);
+  }, [setMediaState, startYoutubePlayback]);
 
   useEffect(() => {
     if (!isPlaying || !isReady || !currentTrack || isSeeking) return;
@@ -925,57 +676,8 @@ export function Player() {
     setMediaPosition,
   ]);
 
-  useEffect(() => {
-    return () => {
-      stopKeepAliveAudio();
-
-      try {
-        audioContextRef.current?.close();
-      } catch {
-        // AudioContext già chiuso.
-      }
-    };
-  }, [stopKeepAliveAudio]);
-
   return (
     <>
-      <canvas
-        ref={canvasRef}
-        width={400}
-        height={460}
-        style={{
-          position: 'fixed',
-          left: -9999,
-          top: -9999,
-          width: 400,
-          height: 460,
-          opacity: 0,
-          pointerEvents: 'none',
-        }}
-        aria-hidden="true"
-      />
-      
-      <video
-        ref={pipVideoRef}
-        loop
-        preload="auto"
-        playsInline
-        autoPictureInPicture
-        crossOrigin="anonymous"
-        aria-hidden="true"
-        src={DUMMY_VIDEO_SRC}
-        style={{
-          position: 'fixed',
-          bottom: 0,
-          right: 0,
-          width: 10,
-          height: 10,
-          opacity: 0.01,
-          pointerEvents: 'none',
-          zIndex: -1,
-        }}
-      />
-
       <div
         className={`
           pointer-events-none
@@ -991,7 +693,7 @@ export function Player() {
           }
           ${
             !isMobileExpanded && !videoExpanded
-              ? 'fixed left-[-9999px] top-[-9999px] w-px h-px opacity-0 overflow-hidden z-[101]'
+              ? 'fixed right-3 bottom-32 md:bottom-28 w-[200px] h-[200px] z-[90] rounded-xl overflow-hidden bg-black shadow-xl opacity-100'
               : ''
           }
         `}
