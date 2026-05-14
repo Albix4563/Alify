@@ -1,26 +1,25 @@
 'use client';
 
-import { usePlayerStore, Track, AudioQuality } from '@/lib/store';
-import { Pause, Play, SkipForward, SkipBack, Rewind, FastForward, Heart, ListPlus, Repeat, Repeat1, Shuffle, Maximize2, Minimize2, Loader2, Sparkles, ChevronDown, Activity } from 'lucide-react';
+import { usePlayerStore } from '@/lib/store';
+import { Pause, Play, SkipForward, SkipBack, Rewind, FastForward, Heart, ListPlus, Repeat, Repeat1, Shuffle, Maximize2, Minimize2, ChevronDown } from 'lucide-react';
 import ReactPlayer from 'react-youtube';
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { db } from '@/lib/firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 
 export function Player() {
   const { user } = useAuth();
-  const { currentTrack, isPlaying, setIsPlaying, playNext, loopMode, setLoopMode, shuffleMode, setShuffleMode, videoExpanded, setVideoExpanded, queue, setQueue, audioQuality } = usePlayerStore();
+  const { currentTrack, isPlaying, setIsPlaying, playNext, playRequestId, loopMode, setLoopMode, shuffleMode, setShuffleMode, videoExpanded, setVideoExpanded } = usePlayerStore();
   const playerRef = useRef<any>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
-  const [isReady, setIsReady] = useState(false);
-  const [audioUrl, setAudioUrl] = useState('');
-  const [isFetchingStream, setIsFetchingStream] = useState(false);
+  const desiredPlayingRef = useRef(false);
+  const streamRequestRef = useRef(0);
+  const lastPlayRequestRef = useRef(0);
   const [isStreamReady, setIsStreamReady] = useState(false);
-  const [isFetchingDJ, setIsFetchingDJ] = useState(false);
+  const [streamVideoId, setStreamVideoId] = useState('');
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isSeeking, setIsSeeking] = useState(false);
@@ -95,66 +94,162 @@ export function Player() {
 
   // Fetch audio stream URL when track changes
   useEffect(() => {
+    const audio = audioRef.current;
+
     if (!currentTrack?.videoId) {
-      setAudioUrl('');
+      desiredPlayingRef.current = false;
+      setStreamVideoId('');
       setIsStreamReady(false);
+      if (audio) {
+        audio.pause();
+        audio.removeAttribute('src');
+        audio.load();
+      }
       return;
     }
-    setIsFetchingStream(true);
-    fetch(`/api/youtube/stream?v=${currentTrack.videoId}`)
+
+    const videoId = currentTrack.videoId;
+    const requestId = streamRequestRef.current + 1;
+    streamRequestRef.current = requestId;
+
+    setCurrentTime(0);
+    setDuration(0);
+    setIsStreamReady(false);
+    setStreamVideoId('');
+
+    if (audio) {
+      audio.pause();
+      audio.removeAttribute('src');
+      audio.load();
+    }
+
+    const controller = new AbortController();
+
+    fetch(`/api/youtube/stream?v=${videoId}`, { signal: controller.signal })
       .then(r => r.json())
       .then(data => {
+        if (streamRequestRef.current !== requestId) return;
+
         if (data.url) {
-          setAudioUrl(data.url);
           if (audioRef.current) {
             audioRef.current.src = data.url;
             audioRef.current.load();
-            setIsStreamReady(true);
           }
+          setStreamVideoId(videoId);
+          setIsStreamReady(true);
         } else {
-          setAudioUrl('');
+          setStreamVideoId('');
           setIsStreamReady(false);
         }
       })
       .catch(() => {
-        setAudioUrl('');
+        if (streamRequestRef.current !== requestId) return;
+        setStreamVideoId('');
         setIsStreamReady(false);
-      })
-      .finally(() => setIsFetchingStream(false));
+      });
+
+    return () => {
+      controller.abort();
+    };
   }, [currentTrack?.videoId]);
+
+  const callVideo = useCallback(async <T = any,>(method: string, args: any[] = []): Promise<T | undefined> => {
+    const player = playerRef.current;
+    const internalPlayer = player?.internalPlayer || player?.getInternalPlayer?.() || player;
+
+    if (!internalPlayer || typeof internalPlayer[method] !== 'function') {
+      return undefined;
+    }
+
+    try {
+      return await internalPlayer[method](...args);
+    } catch (error) {
+      console.warn(`YouTube visual ${method} error:`, error);
+      return undefined;
+    }
+  }, []);
+
+  const syncVideoToAudio = useCallback(async (forceSeek = false) => {
+    const audio = audioRef.current;
+
+    if (!audio || !currentTrack || document.visibilityState === 'hidden') {
+      return;
+    }
+
+    await callVideo('mute');
+    await callVideo('setVolume', [0]);
+
+    const audioTime = audio.currentTime || 0;
+    const videoTime = await callVideo<number>('getCurrentTime');
+    const drift =
+      typeof videoTime === 'number' && Number.isFinite(videoTime)
+        ? Math.abs(videoTime - audioTime)
+        : Number.POSITIVE_INFINITY;
+
+    if (forceSeek || drift > 1.25) {
+      await callVideo('seekTo', [audioTime, true]);
+    }
+
+    if (audio.paused || audio.ended) {
+      await callVideo('pauseVideo');
+      return;
+    }
+
+    await callVideo('playVideo');
+  }, [callVideo, currentTrack]);
 
   const safePlayerCall = useCallback(async (method: string, args: any[] = []) => {
     try {
       const audio = audioRef.current;
-      if (!audio) return;
+
       switch (method) {
-        case 'playVideo': return audio.play();
-        case 'pauseVideo': return audio.pause();
+        case 'playVideo':
+          desiredPlayingRef.current = true;
+          if (!audio || !audio.src) return false;
+          if (audioCtxRef.current?.state === 'suspended') {
+            await audioCtxRef.current.resume().catch(() => {});
+          }
+          await audio.play();
+          setIsPlaying(true);
+          void syncVideoToAudio(true);
+          return true;
+        case 'pauseVideo':
+          desiredPlayingRef.current = false;
+          audio?.pause();
+          setIsPlaying(false);
+          await callVideo('pauseVideo');
+          return true;
         case 'seekTo': 
-          if (args[0] !== undefined) audio.currentTime = args[0];
-          break;
-        case 'getCurrentTime': return audio.currentTime;
-        case 'getDuration': return audio.duration || 0;
-      }
-      // Fallback to iframe if available (visual only)
-      const p = playerRef.current?.internalPlayer || playerRef.current?.getInternalPlayer?.();
-      if (p && typeof p[method] === 'function') {
-        return await p[method](...args);
+          if (audio && args[0] !== undefined) {
+            audio.currentTime = Number(args[0]) || 0;
+            setCurrentTime(audio.currentTime);
+            await syncVideoToAudio(true);
+          }
+          return true;
+        case 'getCurrentTime':
+          return audio?.currentTime || 0;
+        case 'getDuration':
+          return audio?.duration || 0;
+        default:
+          return callVideo(method, args);
       }
     } catch (e) {
       console.warn(`SafePlayerCall ${method} error:`, e);
+      return false;
     }
-  }, []);
+  }, [callVideo, setIsPlaying, syncVideoToAudio]);
 
   const handleNext = useCallback(async () => {
-    if (loopMode === 'one' && playerRef.current) {
+    desiredPlayingRef.current = true;
+
+    if (loopMode === 'one' && currentTrack) {
         await safePlayerCall('seekTo', [0]);
         await safePlayerCall('playVideo');
         return;
     }
     
     playNext();
-  }, [loopMode, playNext, safePlayerCall]);
+  }, [currentTrack, loopMode, playNext, safePlayerCall]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -165,11 +260,19 @@ export function Player() {
     };
     const onLoadedMeta = () => {
       setDuration(audio.duration || 0);
-      setIsReady(true);
     };
-    const onEnded = () => handleNext();
-    const onPlay = () => setIsPlaying(true);
-    const onPause = () => setIsPlaying(false);
+    const onEnded = () => {
+      void handleNext();
+    };
+    const onPlay = () => {
+      desiredPlayingRef.current = true;
+      setIsPlaying(true);
+      void syncVideoToAudio(true);
+    };
+    const onPause = () => {
+      setIsPlaying(false);
+      void callVideo('pauseVideo');
+    };
 
     audio.addEventListener('timeupdate', onTimeUpdate);
     audio.addEventListener('loadedmetadata', onLoadedMeta);
@@ -184,7 +287,30 @@ export function Player() {
       audio.removeEventListener('play', onPlay);
       audio.removeEventListener('pause', onPause);
     };
-  }, [isSeeking, handleNext, setIsPlaying]);
+  }, [callVideo, isSeeking, handleNext, setIsPlaying, syncVideoToAudio]);
+
+  useEffect(() => {
+    if (!currentTrack || !isStreamReady || streamVideoId !== currentTrack.videoId) {
+      return;
+    }
+
+    const hasNewPlayRequest = playRequestId > lastPlayRequestRef.current;
+    if (!desiredPlayingRef.current && !hasNewPlayRequest) {
+      void syncVideoToAudio(true);
+      return;
+    }
+
+    lastPlayRequestRef.current = Math.max(lastPlayRequestRef.current, playRequestId);
+    desiredPlayingRef.current = true;
+    void safePlayerCall('playVideo');
+  }, [
+    currentTrack,
+    isStreamReady,
+    playRequestId,
+    safePlayerCall,
+    streamVideoId,
+    syncVideoToAudio,
+  ]);
 
   useEffect(() => {
     if (currentTrack && 'mediaSession' in navigator) {
@@ -213,6 +339,16 @@ export function Player() {
             }
         });
     }
+    return () => {
+      if (!('mediaSession' in navigator)) return;
+      try {
+        navigator.mediaSession.setActionHandler('play', null);
+        navigator.mediaSession.setActionHandler('pause', null);
+        navigator.mediaSession.setActionHandler('nexttrack', null);
+        navigator.mediaSession.setActionHandler('previoustrack', null);
+        navigator.mediaSession.setActionHandler('seekto', null);
+      } catch {}
+    };
   }, [currentTrack, setIsPlaying, handleNext, safePlayerCall]);
 
   useEffect(() => {
@@ -252,30 +388,21 @@ export function Player() {
   }, []);
 
   const togglePlayPause = () => {
-    const next = !isPlaying;
-    setIsPlaying(next);
-    if (next) {
-      audioRef.current?.play().catch(() => {});
-    } else {
-      audioRef.current?.pause();
+    if (isPlaying) {
+      void safePlayerCall('pauseVideo');
+      return;
     }
+
+    void safePlayerCall('playVideo');
   };
 
   useEffect(() => {
-     if (isPlaying) {
-         audioRef.current?.play().catch(() => {});
-         if (isReady && playerRef.current) safePlayerCall('playVideo');
-     } else {
-         audioRef.current?.pause();
-         if (isReady && playerRef.current) safePlayerCall('pauseVideo');
-     }
-
      if ('mediaSession' in navigator) {
          try {
              navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
          } catch (e) {}
      }
-  }, [isPlaying, isReady, safePlayerCall]);
+  }, [isPlaying]);
 
   useEffect(() => {
     const handleVisibility = () => {
@@ -283,14 +410,28 @@ export function Player() {
             if (audioCtxRef.current?.state === 'suspended') {
                 audioCtxRef.current.resume().catch(() => {});
             }
-            if (isPlaying) {
-                audioRef.current?.play().catch(() => {});
+            if (desiredPlayingRef.current && audioRef.current?.paused) {
+                void safePlayerCall('playVideo');
+                return;
             }
+            void syncVideoToAudio(true);
         }
     };
     document.addEventListener('visibilitychange', handleVisibility);
     return () => document.removeEventListener('visibilitychange', handleVisibility);
-  }, [isPlaying]);
+  }, [safePlayerCall, syncVideoToAudio]);
+
+  useEffect(() => {
+    if (!currentTrack) return;
+
+    const interval = window.setInterval(() => {
+      void syncVideoToAudio(false);
+    }, 1000);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [currentTrack, syncVideoToAudio]);
 
   const handlePrev = async () => {
     if (currentTime > 3) {
@@ -318,14 +459,16 @@ export function Player() {
   };
 
   const handlePlayerReady = (e: any) => {
-      setIsReady(true);
+      playerRef.current = e.target;
       // Mute iframe — audio comes from native audio element
-      try { e.target?.setVolume?.(0); } catch(_) {}
-      if (currentTime > 0) {
-          e.target?.seekTo?.(currentTime);
+      try { e.target?.mute?.(); e.target?.setVolume?.(0); } catch(_) {}
+      if ((audioRef.current?.currentTime || currentTime) > 0) {
+          e.target?.seekTo?.(audioRef.current?.currentTime || currentTime, true);
       }
-      if (isPlaying) {
+      if (desiredPlayingRef.current && !audioRef.current?.paused) {
           e.target?.playVideo?.();
+      } else {
+          e.target?.pauseVideo?.();
       }
   };
 
@@ -335,9 +478,7 @@ export function Player() {
   };
 
   const handleSeekCommit = () => {
-    if (audioRef.current) {
-      audioRef.current.currentTime = currentTime;
-    }
+    void safePlayerCall('seekTo', [currentTime]);
     setIsSeeking(false);
   };
 
@@ -359,7 +500,6 @@ export function Player() {
     <>
       <audio 
         ref={audioRef} 
-        loop 
         preload="auto"
         playsInline 
         webkit-playsinline="true"
@@ -385,17 +525,12 @@ export function Player() {
           <div className={`${isMobileExpanded && currentTrack ? 'absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[177.77vh] h-[100vh] min-w-[100vw] min-h-[56.25vw] max-w-none opacity-100 pointer-events-none [&>div]:w-full [&>div]:h-full [&_iframe]:w-full [&_iframe]:h-full' : 'w-full h-full [&>div]:w-full [&>div]:h-full [&_iframe]:w-full [&_iframe]:h-full [&_iframe]:object-cover overflow-hidden pointer-events-none'}`}>
              <ReactPlayer 
                 ref={playerRef}
+                key={currentTrack.videoId}
                 videoId={currentTrack?.videoId || ''}
-                opts={{ width: '100%', height: '100%', playerVars: { autoplay: 1, controls: 0, modestbranding: 1, rel: 0, showinfo: 0, disablekb: 1, playsinline: 1 } }}
+                opts={{ width: '100%', height: '100%', playerVars: { autoplay: 0, controls: 0, modestbranding: 1, rel: 0, showinfo: 0, disablekb: 1, playsinline: 1 } }}
                 onReady={handlePlayerReady}
-                onPlay={() => setIsPlaying(true)}
-                onPause={() => setIsPlaying(false)}
-                onEnd={handleNext}
                 onError={() => { 
-                   if (currentTrack) {
-                      toast.error("Brano non disponibile o errore di riproduzione."); 
-                      handleNext(); 
-                   }
+                   console.warn("YouTube visual player error.");
                 }}
              />
           </div>
