@@ -12,6 +12,7 @@ export type AudioQuality = 'basso' | 'medio' | 'alto' | 'auto';
 interface PlayerState {
   currentTrack: Track | null;
   queue: Track[];
+  historyStack: Track[];
   isPlaying: boolean;
   playRequestId: number;
   loopMode: 'off' | 'all' | 'one';
@@ -29,6 +30,7 @@ interface PlayerState {
   setVideoExpanded: (expanded: boolean) => void;
   setAudioQuality: (quality: AudioQuality) => void;
   playNext: () => void;
+  playPrevious: () => void;
 }
 
 const normalizeTrack = (track: Track): Track => ({
@@ -41,6 +43,7 @@ const normalizeTrack = (track: Track): Track => ({
 export const usePlayerStore = create<PlayerState>((set) => ({
   currentTrack: null,
   queue: [],
+  historyStack: [],
   isPlaying: false,
   playRequestId: 0,
   loopMode: 'off',
@@ -51,6 +54,9 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   setCurrentTrack: (track, options = { autoPlay: true }) =>
     set((state) => ({
       currentTrack: normalizeTrack(track),
+      historyStack: state.currentTrack
+        ? [...state.historyStack.slice(-49), state.currentTrack]
+        : state.historyStack,
       isPlaying: false,
       playRequestId:
         options.autoPlay === false ? state.playRequestId : state.playRequestId + 1,
@@ -101,9 +107,14 @@ export const usePlayerStore = create<PlayerState>((set) => ({
           newQueue.push(state.currentTrack);
         }
 
+        const newHistory = state.currentTrack
+          ? [...state.historyStack.slice(-49), state.currentTrack]
+          : state.historyStack;
+
         return {
           currentTrack: normalizeTrack(nextTrack),
           queue: newQueue,
+          historyStack: newHistory,
           isPlaying: false,
           playRequestId: state.playRequestId + 1,
         };
@@ -120,6 +131,36 @@ export const usePlayerStore = create<PlayerState>((set) => ({
       return {
         currentTrack: null,
         isPlaying: false,
+      };
+    }),
+
+  playPrevious: () =>
+    set((state) => {
+      const newHistory = [...state.historyStack];
+      if (newHistory.length === 0) {
+        // No history — just seek to 0 on current track
+        if (state.currentTrack) {
+          return {
+            isPlaying: false,
+            playRequestId: state.playRequestId + 1,
+          };
+        }
+        return {};
+      }
+
+      const prevTrack = newHistory.pop()!;
+
+      // Put current track at the front of the queue
+      const newQueue = state.currentTrack
+        ? [state.currentTrack, ...state.queue]
+        : state.queue;
+
+      return {
+        currentTrack: normalizeTrack(prevTrack),
+        queue: newQueue,
+        historyStack: newHistory,
+        isPlaying: false,
+        playRequestId: state.playRequestId + 1,
       };
     }),
 }));

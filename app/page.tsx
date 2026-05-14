@@ -4,9 +4,30 @@ import { useAuth } from '@/lib/auth-context';
 import { Sidebar } from '@/components/Sidebar';
 import { Player } from '@/components/Player';
 import { AuthForm } from '@/components/AuthForm';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Component } from 'react';
 import { MainContent } from '@/components/MainContent';
 import { BottomNav } from '@/components/BottomNav';
+
+// Simple error boundary to prevent Player crashes from taking down the whole page
+class PlayerErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error: Error) {
+    console.error('Player error boundary caught:', error);
+  }
+  render() {
+    if (this.state.hasError) {
+      // Silently recover — the next track change or user interaction will remount
+      return null;
+    }
+    return this.props.children;
+  }
+}
 
 export default function Home() {
   const { user, loading } = useAuth();
@@ -57,7 +78,9 @@ export default function Home() {
         </main>
       </div>
       <BottomNav currentView={currentView} setCurrentView={setCurrentView} />
-      <Player />
+      <PlayerErrorBoundary>
+        <Player />
+      </PlayerErrorBoundary>
     </div>
   );
 }

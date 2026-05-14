@@ -11,7 +11,7 @@ import { motion, AnimatePresence } from 'motion/react';
 
 export function Player() {
   const { user } = useAuth();
-  const { currentTrack, isPlaying, setIsPlaying, playNext, playRequestId, loopMode, setLoopMode, shuffleMode, setShuffleMode, videoExpanded, setVideoExpanded } = usePlayerStore();
+  const { currentTrack, isPlaying, setIsPlaying, playNext, playPrevious, playRequestId, loopMode, setLoopMode, shuffleMode, setShuffleMode, videoExpanded, setVideoExpanded } = usePlayerStore();
   const playerRef = useRef<any>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -32,6 +32,9 @@ export function Player() {
   const [isMobile, setIsMobile] = useState(false);
   const [seekAnimation, setSeekAnimation] = useState<'forward' | 'backward' | null>(null);
   const [miniSwipeFeedback, setMiniSwipeFeedback] = useState<'next' | 'rewind' | null>(null);
+  const [streamRetries, setStreamRetries] = useState(0);
+  const [useIframeFallback, setUseIframeFallback] = useState(false);
+  const retryTimeoutRef = useRef<number | null>(null);
 
   const triggerSeekAnimation = (type: 'forward' | 'backward') => {
       setSeekAnimation(type);
@@ -76,9 +79,6 @@ export function Player() {
         setCurrentTime(0);
         setDuration(0);
         setIsStreamReady(false);
-        if (window.innerWidth < 768) {
-           setIsMobileExpanded(true);
-        }
     }
     if (user && currentTrack) {
         const historyTrack = {
@@ -102,6 +102,79 @@ export function Player() {
     }
   }, []);
 
+  const MAX_STREAM_RETRIES = 3;
+  const RETRY_BASE_DELAY = 1500;
+
+  const tryFetchStream = useCallback(async (videoId: string, requestId: number, attempt: number = 0): Promise<void> => {
+    try {
+      const controller = new AbortController();
+      const res = await fetch(`/api/youtube/stream?v=${videoId}`, { signal: controller.signal });
+      if (streamRequestRef.current !== requestId) return;
+
+      const data = await res.json();
+
+      if (streamRequestRef.current !== requestId) return;
+
+      if (data.url) {
+        if (audioRef.current) {
+          audioRef.current.src = data.url;
+          audioRef.current.load();
+        }
+        const storeState = usePlayerStore.getState();
+        if (storeState.playRequestId > lastPlayRequestRef.current) {
+          desiredPlayingRef.current = true;
+        }
+        setStreamVideoId(videoId);
+        setIsStreamReady(true);
+        setUseIframeFallback(false);
+        setStreamRetries(0);
+        return;
+      }
+
+      // No URL — retry if attempts remain
+      if (attempt < MAX_STREAM_RETRIES - 1) {
+        const delay = RETRY_BASE_DELAY * Math.pow(2, attempt);
+        console.warn(`Stream fetch attempt ${attempt + 1}/${MAX_STREAM_RETRIES} failed for ${videoId}, retrying in ${delay}ms`);
+        retryTimeoutRef.current = window.setTimeout(() => {
+          retryTimeoutRef.current = null;
+          if (streamRequestRef.current === requestId) {
+            tryFetchStream(videoId, requestId, attempt + 1);
+          }
+        }, delay);
+        setStreamRetries(attempt + 1);
+        return;
+      }
+
+      // All retries exhausted — fall back to iframe
+      console.warn(`All stream attempts failed for ${videoId}, falling back to iframe playback`);
+      setUseIframeFallback(true);
+      setIsStreamReady(true); // Ready to play via iframe
+      setStreamVideoId(videoId);
+      setStreamRetries(0);
+    } catch (err) {
+      if (streamRequestRef.current !== requestId) return;
+
+      if (attempt < MAX_STREAM_RETRIES - 1) {
+        const delay = RETRY_BASE_DELAY * Math.pow(2, attempt);
+        retryTimeoutRef.current = window.setTimeout(() => {
+          retryTimeoutRef.current = null;
+          if (streamRequestRef.current === requestId) {
+            tryFetchStream(videoId, requestId, attempt + 1);
+          }
+        }, delay);
+        setStreamRetries(attempt + 1);
+        return;
+      }
+
+      // All retries exhausted — fall back to iframe
+      console.warn(`All stream attempts failed for ${videoId}, falling back to iframe playback`);
+      setUseIframeFallback(true);
+      setIsStreamReady(true);
+      setStreamVideoId(videoId);
+      setStreamRetries(0);
+    }
+  }, []);
+
   // Fetch audio stream URL when track changes
   useEffect(() => {
     const audio = audioRef.current;
@@ -112,8 +185,14 @@ export function Player() {
       isSwitchingTrackRef.current = false;
       playerRef.current = null;
       clearRetryPlayTimeout();
+      if (retryTimeoutRef.current !== null) {
+        window.clearTimeout(retryTimeoutRef.current);
+        retryTimeoutRef.current = null;
+      }
       setStreamVideoId('');
       setIsStreamReady(false);
+      setUseIframeFallback(false);
+      setStreamRetries(0);
       if (audio) {
         audio.pause();
         audio.removeAttribute('src');
@@ -127,7 +206,7 @@ export function Player() {
     const requestId = streamRequestRef.current + 1;
     streamRequestRef.current = requestId;
 
-    // Preserve play intent: if we were playing or there's a new playRequestId, keep wanting to play
+    // Preserve play intent
     const wantsToPlay = desiredPlayingRef.current || usePlayerStore.getState().playRequestId > lastPlayRequestRef.current;
     desiredPlayingRef.current = wantsToPlay;
 
@@ -135,9 +214,16 @@ export function Player() {
     setDuration(0);
     setIsStreamReady(false);
     setStreamVideoId('');
+    setUseIframeFallback(false);
+    setStreamRetries(0);
     isSwitchingTrackRef.current = true;
     playerRef.current = null;
     clearRetryPlayTimeout();
+
+    if (retryTimeoutRef.current !== null) {
+      window.clearTimeout(retryTimeoutRef.current);
+      retryTimeoutRef.current = null;
+    }
 
     if (audio) {
       audio.pause();
@@ -145,44 +231,15 @@ export function Player() {
       audio.load();
     }
 
-    const controller = new AbortController();
-
-    fetch(`/api/youtube/stream?v=${videoId}`, { signal: controller.signal })
-      .then(r => r.json())
-      .then(data => {
-        if (streamRequestRef.current !== requestId) return;
-
-        if (data.url) {
-          if (audioRef.current) {
-            audioRef.current.src = data.url;
-            audioRef.current.load();
-          }
-          // Restore play intent: the store's playRequestId may have been incremented for this track
-          const storeState = usePlayerStore.getState();
-          if (storeState.playRequestId > lastPlayRequestRef.current) {
-            desiredPlayingRef.current = true;
-          }
-          setStreamVideoId(videoId);
-          setIsStreamReady(true);
-        } else {
-          setStreamVideoId('');
-          setIsStreamReady(false);
-          isSwitchingTrackRef.current = false;
-          setIsPlaying(false);
-        }
-      })
-      .catch(() => {
-        if (streamRequestRef.current !== requestId) return;
-        setStreamVideoId('');
-        setIsStreamReady(false);
-        isSwitchingTrackRef.current = false;
-        setIsPlaying(false);
-      });
+    tryFetchStream(videoId, requestId, 0);
 
     return () => {
-      controller.abort();
+      if (retryTimeoutRef.current !== null) {
+        window.clearTimeout(retryTimeoutRef.current);
+        retryTimeoutRef.current = null;
+      }
     };
-  }, [clearRetryPlayTimeout, currentTrack?.videoId, setIsPlaying]);
+  }, [clearRetryPlayTimeout, currentTrack?.videoId, setIsPlaying, tryFetchStream]);
 
   const callVideo = useCallback(async <T = any,>(method: string, args: any[] = []): Promise<T | undefined> => {
     const player = playerRef.current;
@@ -203,12 +260,22 @@ export function Player() {
   const syncVideoToAudio = useCallback(async (forceSeek = false) => {
     const audio = audioRef.current;
 
-    if (!audio || !currentTrack || document.visibilityState === 'hidden') {
+    if (!currentTrack || document.visibilityState === 'hidden') {
       return;
     }
 
-    await callVideo('mute');
-    await callVideo('setVolume', [0]);
+    // In iframe fallback mode, the iframe IS the audio source — don't mute it
+    if (!useIframeFallback) {
+      await callVideo('mute');
+      await callVideo('setVolume', [0]);
+    }
+
+    if (useIframeFallback) {
+      // In fallback mode, sync from video to nothing (the video is the source)
+      return;
+    }
+
+    if (!audio) return;
 
     const audioTime = audio.currentTime || 0;
     const videoTime = await callVideo<number>('getCurrentTime');
@@ -227,12 +294,42 @@ export function Player() {
     }
 
     await callVideo('playVideo');
-  }, [callVideo, currentTrack]);
+  }, [callVideo, currentTrack, useIframeFallback]);
 
   const safePlayerCall = useCallback(async (method: string, args: any[] = []) => {
     try {
       const audio = audioRef.current;
 
+      // If using iframe fallback, delegate everything to the YouTube player
+      if (useIframeFallback) {
+        switch (method) {
+          case 'playVideo':
+            desiredPlayingRef.current = true;
+            isSwitchingTrackRef.current = false;
+            clearRetryPlayTimeout();
+            setIsPlaying(true);
+            // Unmute the iframe for audible playback
+            await callVideo('unMute');
+            await callVideo('setVolume', [100]);
+            return await callVideo('playVideo');
+          case 'pauseVideo':
+            desiredPlayingRef.current = false;
+            isSwitchingTrackRef.current = false;
+            clearRetryPlayTimeout();
+            setIsPlaying(false);
+            return await callVideo('pauseVideo');
+          case 'seekTo':
+            return await callVideo('seekTo', args);
+          case 'getCurrentTime':
+            return await callVideo<number>('getCurrentTime') || 0;
+          case 'getDuration':
+            return await callVideo<number>('getDuration') || 0;
+          default:
+            return callVideo(method, args);
+        }
+      }
+
+      // Native audio mode
       switch (method) {
         case 'playVideo':
           desiredPlayingRef.current = true;
@@ -272,7 +369,7 @@ export function Player() {
       console.warn(`SafePlayerCall ${method} error:`, e);
       return false;
     }
-  }, [callVideo, clearRetryPlayTimeout, setIsPlaying, syncVideoToAudio]);
+  }, [callVideo, clearRetryPlayTimeout, setIsPlaying, syncVideoToAudio, useIframeFallback]);
 
   const retryPlayForCurrentTrack = useCallback((delay = 250) => {
     clearRetryPlayTimeout();
@@ -563,15 +660,14 @@ export function Player() {
     };
   }, [currentTrack, syncVideoToAudio]);
 
-  const handlePrev = async () => {
+  const handlePrev = useCallback(async () => {
     if (currentTime > 3) {
       await safePlayerCall('seekTo', [0]);
       setCurrentTime(0);
     } else {
-      await safePlayerCall('seekTo', [0]);
-      setCurrentTime(0);
+      playPrevious();
     }
-  };
+  }, [currentTime, playPrevious, safePlayerCall]);
 
   const formatTime = (seconds: number) => {
     if (!seconds || isNaN(seconds)) return "0:00";
@@ -590,8 +686,13 @@ export function Player() {
 
   const handlePlayerReady = (e: any) => {
       playerRef.current = e.target;
-      // Mute iframe — audio comes from native audio element
-      try { e.target?.mute?.(); e.target?.setVolume?.(0); } catch(_) {}
+      if (useIframeFallback) {
+        // Iframe fallback mode — don't mute, let it play audio
+        try { e.target?.unMute?.(); e.target?.setVolume?.(100); } catch(_) {}
+      } else {
+        // Mute iframe — audio comes from native audio element
+        try { e.target?.mute?.(); e.target?.setVolume?.(0); } catch(_) {}
+      }
       if ((audioRef.current?.currentTime || currentTime) > 0) {
           e.target?.seekTo?.(audioRef.current?.currentTime || currentTime, true);
       }
