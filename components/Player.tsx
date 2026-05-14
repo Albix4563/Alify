@@ -40,6 +40,8 @@ const wait = (ms: number) =>
     window.setTimeout(resolve, ms);
   });
 
+const DUMMY_VIDEO_SRC = "data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAAIZnJlZQAAAAxtZGF0AAAAAAABaG1vb3YAAABsbXZoZAAAAAB8JbIEfCWyBAAAMgEAAExLAAEAAAEAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAABidHJhawAAAFx0a2hkAAAAA3wlshR8JbIUAAAAAQAAAAAAAExLAAAAAAAAAAAAAAAAAQAAAAABAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAeAAAAHgAAAAAAJGVkdHMAAAAcZWxzdAAAAAAAAAABAAAATEsAAAEAAAABAAAAAAARrW1kaWEAAAAgbWRoZAAAAAB8JbIEfCWyBAAAMgEAACxVAAAAAAAAACxoZGxyAAAAAAAAAAB2aWRlAAAAAAAAAAAAAAAAAAAAVmlkZW9IYW5kbGVyAAAAAAANJG1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAAACcdHN0YgAAABJzdHNkAAAAAAAAAAEAAAASYXZjMQAAAAAAAQAAAAAAAAAAAAAAAAAAAAAeAB4ASAAAAEgAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABj//wAAAA5hdmNDAwED/wAA/wAAAAAAAQAAABRzdHRzAAAAAAAAAAEAAAABAAACXgAAABxzdHNjAAAAAAAAAAEAAAABAAAAAQAAAAEAAAAcc3RzegAAAAAAAAAAAAAAAQAAABsAAAAUc3RjbwAAAAAAAAABAAAAMAAAADh1ZHRhAAAAMG1ldGEAAAAAAAAAIWhkbHIAAAAAAAAAAG1kaXJhcHBsAAAAAAAAAAAAAAAA";
+
 export function Player() {
   const { user } = useAuth();
 
@@ -180,13 +182,10 @@ export function Player() {
       
       const video = pipVideoRef.current;
       if (video && canvasRef.current) {
-         if (!video.srcObject && !video.src) {
+         if (!video.srcObject) {
             const isIOS = typeof navigator !== 'undefined' && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
             
-            if (isIOS) {
-               video.src = "data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAAIZnJlZQAAAAxtZGF0AAAAAAABaG1vb3YAAABsbXZoZAAAAAB8JbIEfCWyBAAAMgEAAExLAAEAAAEAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAABidHJhawAAAFx0a2hkAAAAA3wlshR8JbIUAAAAAQAAAAAAAExLAAAAAAAAAAAAAAAAAQAAAAABAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAeAAAAHgAAAAAAJGVkdHMAAAAcZWxzdAAAAAAAAAABAAAATEsAAAEAAAABAAAAAAARrW1kaWEAAAAgbWRoZAAAAAB8JbIEfCWyBAAAMgEAACxVAAAAAAAAACxoZGxyAAAAAAAAAAB2aWRlAAAAAAAAAAAAAAAAAAAAVmlkZW9IYW5kbGVyAAAAAAANJG1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAAACcdHN0YgAAABJzdHNkAAAAAAAAAAEAAAASYXZjMQAAAAAAAQAAAAAAAAAAAAAAAAAAAAAeAB4ASAAAAEgAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABj//wAAAA5hdmNDAwED/wAA/wAAAAAAAQAAABRzdHRzAAAAAAAAAAEAAAABAAACXgAAABxzdHNjAAAAAAAAAAEAAAABAAAAAQAAAAEAAAAcc3RzegAAAAAAAAAAAAAAAQAAABsAAAAUc3RjbwAAAAAAAAABAAAAMAAAADh1ZHRhAAAAMG1ldGEAAAAAAAAAIWhkbHIAAAAAAAAAAG1kaXJhcHBsAAAAAAAAAAAAAAAA";
-               video.load();
-            } else {
+            if (!isIOS) {
               try {
                  const canvasStream = (canvasRef.current as any).captureStream(15);
                  if (dest.stream) {
@@ -196,9 +195,9 @@ export function Player() {
                     }
                  }
                  video.srcObject = canvasStream;
+                 video.src = ''; // Clear default src when using srcObject
               } catch (e) {
                  console.warn("CaptureStream failed", e);
-                 video.src = "data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAAIZnJlZQAAAAxtZGF0AAAAAAABaG1vb3YAAABsbXZoZAAAAAB8JbIEfCWyBAAAMgEAAExLAAEAAAEAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAABidHJhawAAAFx0a2hkAAAAA3wlshR8JbIUAAAAAQAAAAAAAExLAAAAAAAAAAAAAAAAAQAAAAABAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAeAAAAHgAAAAAAJGVkdHMAAAAcZWxzdAAAAAAAAAABAAAATEsAAAEAAAABAAAAAAARrW1kaWEAAAAgbWRoZAAAAAB8JbIEfCWyBAAAMgEAACxVAAAAAAAAACxoZGxyAAAAAAAAAAB2aWRlAAAAAAAAAAAAAAAAAAAAVmlkZW9IYW5kbGVyAAAAAAANJG1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAAACcdHN0YgAAABJzdHNkAAAAAAAAAAEAAAASYXZjMQAAAAAAAQAAAAAAAAAAAAAAAAAAAAAeAB4ASAAAAEgAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABj//wAAAA5hdmNDAwED/wAA/wAAAAAAAQAAABRzdHRzAAAAAAAAAAEAAAABAAACXgAAABxzdHNjAAAAAAAAAAEAAAABAAAAAQAAAAEAAAAcc3RzegAAAAAAAAAAAAAAAQAAABsAAAAUc3RjbwAAAAAAAAABAAAAMAAAADh1ZHRhAAAAMG1ldGEAAAAAAAAAIWhkbHIAAAAAAAAAAG1kaXJhcHBsAAAAAAAAAAAAAAAA";
               }
             }
          }
@@ -863,12 +862,11 @@ export function Player() {
     console.log('[PiP] togglePiP called. readyState:', video.readyState, 'paused:', video.paused);
     
     if (video.paused) {
-      try {
-        await video.play();
-        console.log('[PiP] video played successfully');
-      } catch (err) {
-        console.warn('[PiP] play failed before pip', err);
-      }
+      // Don't await this, as waiting for the promise ticks will lose the user gesture context
+      // which is strictly required for PiP on iOS/Safari
+      video.play().catch((err) => {
+        console.warn('[PiP] background play failed', err);
+      });
     }
 
     try {
@@ -889,7 +887,14 @@ export function Player() {
       }
     } catch (e: any) {
       console.warn('[PiP] failed to enter PiP:', e);
-      alert('Errore PiP: ' + e.message);
+      // Fallback for iOS if video is not ready
+      if (video.readyState === 0) {
+        alert('Caricamento video in corso, riprova tra un istante');
+        video.load();
+        void video.play();
+      } else {
+        alert('Errore PiP: ' + e.message);
+      }
     }
   }, []);
 
@@ -963,6 +968,7 @@ export function Player() {
         autoPictureInPicture
         crossOrigin="anonymous"
         aria-hidden="true"
+        src={DUMMY_VIDEO_SRC}
         style={{
           position: 'fixed',
           bottom: 0,
