@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 export function BottomNav({ currentView, setCurrentView }: any) {
   const [hidden, setHidden] = useState(false);
   const [lastY, setLastY] = useState(0);
-  const { currentTrack } = usePlayerStore();
+  const currentTrack = usePlayerStore((state) => state.currentTrack);
   const { logout } = useAuth();
   
   // Show menu indicator
