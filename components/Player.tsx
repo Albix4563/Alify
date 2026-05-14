@@ -15,16 +15,15 @@ import {
   SkipBack,
   SkipForward,
 } from 'lucide-react';
-import YouTube from 'react-youtube';
+import dynamic from 'next/dynamic';
+const YouTube = dynamic(() => import('react-youtube'), { ssr: false });
+
 import { useAuth } from '@/lib/auth-context';
 import { db } from '@/lib/firebase';
 import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { AnimatePresence, motion } from 'motion/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-
-const SILENT_AUDIO_SRC =
-  'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
 
 const YT_STATE = {
   UNSTARTED: -1,
@@ -59,7 +58,9 @@ export function Player() {
   } = usePlayerStore();
 
   const youtubePlayerRef = useRef<any | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const pipVideoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const animFrameRef = useRef<number | null>(null);
 
   const desiredPlayingRef = useRef(false);
   const trackChangingRef = useRef(false);
@@ -139,24 +140,6 @@ export function Player() {
   );
 
   const ensureKeepAliveAudio = useCallback(async () => {
-    const audio = audioRef.current;
-
-    if (audio) {
-      try {
-        audio.loop = true;
-        audio.muted = false;
-        audio.volume = 0.001;
-
-        if (audio.readyState === 0) {
-          audio.load();
-        }
-
-        void audio.play();
-      } catch {
-        // Può essere bloccato dal browser.
-      }
-    }
-
     try {
       const AudioCtx =
         window.AudioContext || (window as any).webkitAudioContext;
@@ -173,6 +156,12 @@ export function Player() {
         await context.resume();
       }
 
+      let dest = (context as any).__pipDest;
+      if (!dest) {
+         dest = context.createMediaStreamDestination();
+         (context as any).__pipDest = dest;
+      }
+
       if (!oscillatorRef.current) {
         const oscillator = context.createOscillator();
         const gain = context.createGain();
@@ -181,18 +170,48 @@ export function Player() {
         gain.gain.value = 0.00001;
 
         oscillator.connect(gain);
+        gain.connect(dest);
         gain.connect(context.destination);
         oscillator.start();
 
         oscillatorRef.current = oscillator;
       }
+      
+      const video = pipVideoRef.current;
+      if (video && canvasRef.current) {
+         if (!video.srcObject && !video.src) {
+            try {
+               const canvasStream = (canvasRef.current as any).captureStream(15);
+               if (dest.stream) {
+                  const audioTrack = dest.stream.getAudioTracks()[0];
+                  if (audioTrack) {
+                     canvasStream.addTrack(audioTrack);
+                  }
+               }
+               video.srcObject = canvasStream;
+            } catch (e) {
+               console.warn("CaptureStream failed", e);
+               video.src = "data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAAIZnJlZQAAAAxtZGF0AAAAAAABaG1vb3YAAABsbXZoZAAAAAB8JbIEfCWyBAAAMgEAAExLAAEAAAEAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAABidHJhawAAAFx0a2hkAAAAA3wlshR8JbIUAAAAAQAAAAAAAExLAAAAAAAAAAAAAAAAAQAAAAABAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAeAAAAHgAAAAAAJGVkdHMAAAAcZWxzdAAAAAAAAAABAAAATEsAAAEAAAABAAAAAAARrW1kaWEAAAAgbWRoZAAAAAB8JbIEfCWyBAAAMgEAACxVAAAAAAAAACxoZGxyAAAAAAAAAAB2aWRlAAAAAAAAAAAAAAAAAAAAVmlkZW9IYW5kbGVyAAAAAAANJG1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAAACcdHN0YgAAABJzdHNkAAAAAAAAAAEAAAASYXZjMQAAAAAAAQAAAAAAAAAAAAAAAAAAAAAeAB4ASAAAAEgAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABj//wAAAA5hdmNDAwED/wAA/wAAAAAAAQAAABRzdHRzAAAAAAAAAAEAAAABAAACXgAAABxzdHNjAAAAAAAAAAEAAAABAAAAAQAAAAEAAAAcc3RzegAAAAAAAAAAAAAAAQAAABsAAAAUc3RjbwAAAAAAAAABAAAAMAAAADh1ZHRhAAAAMG1ldGEAAAAAAAAAIWhkbHIAAAAAAAAAAG1kaXJhcHBsAAAAAAAAAAAAAAAA";
+            }
+         }
+         
+         video.loop = true;
+         video.muted = false;
+         video.volume = 0.001;
+         
+         if (video.readyState === 0) {
+           video.load();
+         }
+         
+         void video.play();
+      }
     } catch {
-      // WebAudio non disponibile o sospeso.
+      // Failed
     }
   }, []);
 
   const stopKeepAliveAudio = useCallback(() => {
-    audioRef.current?.pause();
+    pipVideoRef.current?.pause();
 
     try {
       oscillatorRef.current?.stop();
@@ -722,12 +741,92 @@ export function Player() {
   ]);
 
   useEffect(() => {
+    if (!currentTrack) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.src = currentTrack.thumbnailUrl || '';
+
+    const draw = () => {
+      if (!ctx || !canvas) return;
+      
+      ctx.fillStyle = '#0a0a0a';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      
+      if (img.complete && img.naturalWidth > 0) {
+        ctx.globalAlpha = 0.3;
+        ctx.filter = 'blur(20px)';
+        ctx.drawImage(img, -50, -50, canvas.width + 100, canvas.height + 100);
+        
+        ctx.globalAlpha = 1.0;
+        ctx.filter = 'none';
+        
+        const size = 300;
+        const x = (canvas.width - size) / 2;
+        const y = 50;
+        
+        ctx.shadowColor = 'rgba(0,0,0,0.6)';
+        ctx.shadowBlur = 30;
+        ctx.shadowOffsetY = 15;
+        
+        ctx.save();
+        ctx.beginPath();
+        if ((ctx as any).roundRect) {
+           (ctx as any).roundRect(x, y, size, size, 20);
+        } else {
+           ctx.rect(x, y, size, size);
+        }
+        ctx.clip();
+        ctx.drawImage(img, x, y, size, size);
+        ctx.restore();
+        
+        ctx.shadowColor = 'transparent';
+      }
+      
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 28px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(currentTrack.title?.substring(0, 35) || '', canvas.width/2, 400);
+      
+      ctx.fillStyle = '#aaaaaa';
+      ctx.font = '22px sans-serif';
+      ctx.fillText(currentTrack.channelTitle?.substring(0, 35) || '', canvas.width/2, 440);
+      
+      animFrameRef.current = requestAnimationFrame(draw);
+    };
+
+    draw();
+
+    return () => {
+      if (animFrameRef.current) {
+        cancelAnimationFrame(animFrameRef.current);
+      }
+    };
+  }, [currentTrack]);
+
+  useEffect(() => {
     const handleVisibility = () => {
       if (document.visibilityState === 'hidden') {
         if (desiredPlayingRef.current) {
           visibilityGuardRef.current = true;
           void ensureKeepAliveAudio();
           setMediaState('playing');
+          
+          const video = pipVideoRef.current;
+          if (video) {
+             try {
+                if (video.requestPictureInPicture && !document.pictureInPictureElement) {
+                   video.requestPictureInPicture().catch(() => {});
+                } else if ((video as any).webkitSupportsPresentationMode && (video as any).webkitPresentationMode !== 'picture-in-picture') {
+                   (video as any).webkitSetPresentationMode('picture-in-picture');
+                }
+             } catch(e) {}
+          }
         }
 
         return;
@@ -795,13 +894,28 @@ export function Player() {
 
   return (
     <>
-      <audio
-        ref={audioRef}
+      <canvas
+        ref={canvasRef}
+        width={400}
+        height={460}
+        style={{
+          position: 'fixed',
+          left: -9999,
+          top: -9999,
+          width: 400,
+          height: 460,
+          opacity: 0,
+          pointerEvents: 'none',
+        }}
+        aria-hidden="true"
+      />
+      
+      <video
+        ref={pipVideoRef}
         loop
         preload="auto"
         playsInline
         aria-hidden="true"
-        src={SILENT_AUDIO_SRC}
         style={{
           position: 'fixed',
           left: -9999,
