@@ -16,8 +16,11 @@ export function Player() {
   const audioRef = useRef<HTMLAudioElement>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const desiredPlayingRef = useRef(false);
+  const currentTrackIdRef = useRef('');
+  const isSwitchingTrackRef = useRef(false);
   const streamRequestRef = useRef(0);
   const lastPlayRequestRef = useRef(0);
+  const retryPlayTimeoutRef = useRef<number | null>(null);
   const [isStreamReady, setIsStreamReady] = useState(false);
   const [streamVideoId, setStreamVideoId] = useState('');
   const [currentTime, setCurrentTime] = useState(0);
@@ -92,22 +95,35 @@ export function Player() {
     }
   }, [currentTrack, user]);
 
+  const clearRetryPlayTimeout = useCallback(() => {
+    if (retryPlayTimeoutRef.current !== null) {
+      window.clearTimeout(retryPlayTimeoutRef.current);
+      retryPlayTimeoutRef.current = null;
+    }
+  }, []);
+
   // Fetch audio stream URL when track changes
   useEffect(() => {
     const audio = audioRef.current;
 
     if (!currentTrack?.videoId) {
+      currentTrackIdRef.current = '';
       desiredPlayingRef.current = false;
+      isSwitchingTrackRef.current = false;
+      playerRef.current = null;
+      clearRetryPlayTimeout();
       setStreamVideoId('');
       setIsStreamReady(false);
       if (audio) {
         audio.pause();
-        audio.src = '';
+        audio.removeAttribute('src');
+        audio.load();
       }
       return;
     }
 
     const videoId = currentTrack.videoId;
+    currentTrackIdRef.current = videoId;
     const requestId = streamRequestRef.current + 1;
     streamRequestRef.current = requestId;
 
@@ -115,10 +131,14 @@ export function Player() {
     setDuration(0);
     setIsStreamReady(false);
     setStreamVideoId('');
+    isSwitchingTrackRef.current = true;
+    playerRef.current = null;
+    clearRetryPlayTimeout();
 
     if (audio) {
       audio.pause();
-      audio.src = '';
+      audio.removeAttribute('src');
+      audio.load();
     }
 
     const controller = new AbortController();
@@ -138,18 +158,22 @@ export function Player() {
         } else {
           setStreamVideoId('');
           setIsStreamReady(false);
+          isSwitchingTrackRef.current = false;
+          setIsPlaying(false);
         }
       })
       .catch(() => {
         if (streamRequestRef.current !== requestId) return;
         setStreamVideoId('');
         setIsStreamReady(false);
+        isSwitchingTrackRef.current = false;
+        setIsPlaying(false);
       });
 
     return () => {
       controller.abort();
     };
-  }, [currentTrack?.videoId]);
+  }, [clearRetryPlayTimeout, currentTrack?.videoId, setIsPlaying]);
 
   const callVideo = useCallback(async <T = any,>(method: string, args: any[] = []): Promise<T | undefined> => {
     const player = playerRef.current;
@@ -208,11 +232,15 @@ export function Player() {
             await audioCtxRef.current.resume().catch(() => {});
           }
           await audio.play();
+          isSwitchingTrackRef.current = false;
+          clearRetryPlayTimeout();
           setIsPlaying(true);
           void syncVideoToAudio(true);
           return true;
         case 'pauseVideo':
           desiredPlayingRef.current = false;
+          isSwitchingTrackRef.current = false;
+          clearRetryPlayTimeout();
           audio?.pause();
           setIsPlaying(false);
           await callVideo('pauseVideo');
@@ -235,7 +263,35 @@ export function Player() {
       console.warn(`SafePlayerCall ${method} error:`, e);
       return false;
     }
-  }, [callVideo, setIsPlaying, syncVideoToAudio]);
+  }, [callVideo, clearRetryPlayTimeout, setIsPlaying, syncVideoToAudio]);
+
+  const retryPlayForCurrentTrack = useCallback((delay = 250) => {
+    clearRetryPlayTimeout();
+
+    if (!desiredPlayingRef.current || !currentTrack?.videoId) {
+      return;
+    }
+
+    const videoId = currentTrack.videoId;
+    retryPlayTimeoutRef.current = window.setTimeout(() => {
+      retryPlayTimeoutRef.current = null;
+      if (
+        desiredPlayingRef.current &&
+        currentTrackIdRef.current === videoId &&
+        isStreamReady &&
+        streamVideoId === videoId &&
+        audioRef.current?.paused
+      ) {
+        void safePlayerCall('playVideo');
+      }
+    }, delay);
+  }, [
+    clearRetryPlayTimeout,
+    currentTrack,
+    isStreamReady,
+    safePlayerCall,
+    streamVideoId,
+  ]);
 
   const handleNext = useCallback(async () => {
     desiredPlayingRef.current = true;
@@ -264,18 +320,35 @@ export function Player() {
     };
     const onPlay = () => {
       desiredPlayingRef.current = true;
+      isSwitchingTrackRef.current = false;
       setIsPlaying(true);
       void syncVideoToAudio(true);
     };
     const onPause = () => {
+      if (isSwitchingTrackRef.current && desiredPlayingRef.current) {
+        return;
+      }
+      desiredPlayingRef.current = false;
       setIsPlaying(false);
       void callVideo('pauseVideo');
     };
     const onPlaying = () => {
+      isSwitchingTrackRef.current = false;
+      clearRetryPlayTimeout();
       void syncVideoToAudio(true);
     };
     const onWaiting = () => {
+      if (isSwitchingTrackRef.current && desiredPlayingRef.current) {
+        return;
+      }
       void callVideo('pauseVideo');
+    };
+    const onCanPlay = () => {
+      if (desiredPlayingRef.current && audio.paused) {
+        void safePlayerCall('playVideo');
+        return;
+      }
+      void syncVideoToAudio(true);
     };
 
     audio.addEventListener('timeupdate', onTimeUpdate);
@@ -285,6 +358,7 @@ export function Player() {
     audio.addEventListener('pause', onPause);
     audio.addEventListener('playing', onPlaying);
     audio.addEventListener('waiting', onWaiting);
+    audio.addEventListener('canplay', onCanPlay);
 
     return () => {
       audio.removeEventListener('timeupdate', onTimeUpdate);
@@ -294,8 +368,17 @@ export function Player() {
       audio.removeEventListener('pause', onPause);
       audio.removeEventListener('playing', onPlaying);
       audio.removeEventListener('waiting', onWaiting);
+      audio.removeEventListener('canplay', onCanPlay);
     };
-  }, [callVideo, isSeeking, handleNext, setIsPlaying, syncVideoToAudio]);
+  }, [
+    callVideo,
+    clearRetryPlayTimeout,
+    handleNext,
+    isSeeking,
+    safePlayerCall,
+    setIsPlaying,
+    syncVideoToAudio,
+  ]);
 
   useEffect(() => {
     if (!currentTrack || !isStreamReady || streamVideoId !== currentTrack.videoId) {
@@ -310,11 +393,14 @@ export function Player() {
 
     lastPlayRequestRef.current = Math.max(lastPlayRequestRef.current, playRequestId);
     desiredPlayingRef.current = true;
-    void safePlayerCall('playVideo');
+    void safePlayerCall('playVideo').then((started) => {
+      if (!started) retryPlayForCurrentTrack();
+    });
   }, [
     currentTrack,
     isStreamReady,
     playRequestId,
+    retryPlayForCurrentTrack,
     safePlayerCall,
     streamVideoId,
     syncVideoToAudio,
@@ -364,6 +450,12 @@ export function Player() {
       try { (navigator as any).audioSession.type = 'playback'; } catch(e) {}
     }
   }, []);
+
+  useEffect(() => {
+    return () => {
+      clearRetryPlayTimeout();
+    };
+  }, [clearRetryPlayTimeout]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -473,7 +565,11 @@ export function Player() {
       if ((audioRef.current?.currentTime || currentTime) > 0) {
           e.target?.seekTo?.(audioRef.current?.currentTime || currentTime, true);
       }
-      if (desiredPlayingRef.current && !audioRef.current?.paused) {
+      if (desiredPlayingRef.current && audioRef.current?.paused && audioRef.current?.src) {
+          void safePlayerCall('playVideo').then((started) => {
+              if (!started) retryPlayForCurrentTrack();
+          });
+      } else if (desiredPlayingRef.current && !audioRef.current?.paused) {
           e.target?.playVideo?.();
       } else {
           e.target?.pauseVideo?.();
