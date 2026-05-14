@@ -305,13 +305,17 @@ export function Player() {
         switch (method) {
           case 'playVideo':
             desiredPlayingRef.current = true;
-            isSwitchingTrackRef.current = false;
-            clearRetryPlayTimeout();
-            setIsPlaying(true);
             // Unmute the iframe for audible playback
             await callVideo('unMute');
             await callVideo('setVolume', [100]);
-            return await callVideo('playVideo');
+            const played = await callVideo('playVideo');
+            if (played !== undefined) {
+              isSwitchingTrackRef.current = false;
+              clearRetryPlayTimeout();
+              setIsPlaying(true);
+              return true;
+            }
+            return false;
           case 'pauseVideo':
             desiredPlayingRef.current = false;
             isSwitchingTrackRef.current = false;
@@ -504,23 +508,40 @@ export function Player() {
 
     lastPlayRequestRef.current = Math.max(lastPlayRequestRef.current, playRequestId);
     desiredPlayingRef.current = true;
-    isSwitchingTrackRef.current = false; // Stream is ready, we're no longer switching
+    isSwitchingTrackRef.current = false;
+
+    // In iframe fallback mode, the iframe might not be ready yet.
+    // handlePlayerReady will trigger playback when it fires.
+    // We still try here in case the iframe IS already ready.
     void safePlayerCall('playVideo').then((started) => {
       if (!started) {
-        // Use a direct timeout instead of the closure-captured retryPlayForCurrentTrack
-        // to avoid stale isStreamReady/streamVideoId values
         clearRetryPlayTimeout();
         const vid = currentTrack.videoId;
-        retryPlayTimeoutRef.current = window.setTimeout(() => {
-          retryPlayTimeoutRef.current = null;
-          if (
-            desiredPlayingRef.current &&
-            currentTrackIdRef.current === vid &&
-            audioRef.current?.paused
-          ) {
-            void safePlayerCall('playVideo');
-          }
-        }, 300);
+        // Retry up to 3 times with increasing delays (waiting for iframe to be ready)
+        const scheduleRetry = (attempt: number) => {
+          if (attempt > 2) return; // Max 3 attempts
+          const delay = 300 + attempt * 400;
+          retryPlayTimeoutRef.current = window.setTimeout(() => {
+            retryPlayTimeoutRef.current = null;
+            if (
+              desiredPlayingRef.current &&
+              currentTrackIdRef.current === vid
+            ) {
+              // In iframe fallback, only check if we're still on the same track
+              // In native mode, also check audio is paused
+              if (useIframeFallback) {
+                void safePlayerCall('playVideo').then((s) => {
+                  if (!s) scheduleRetry(attempt + 1);
+                });
+              } else if (audioRef.current?.paused) {
+                void safePlayerCall('playVideo').then((s) => {
+                  if (!s) scheduleRetry(attempt + 1);
+                });
+              }
+            }
+          }, delay);
+        };
+        scheduleRetry(0);
       }
     });
   }, [
@@ -531,6 +552,7 @@ export function Player() {
     safePlayerCall,
     streamVideoId,
     syncVideoToAudio,
+    useIframeFallback,
   ]);
 
   useEffect(() => {
@@ -652,13 +674,35 @@ export function Player() {
     if (!currentTrack) return;
 
     const interval = window.setInterval(() => {
-      void syncVideoToAudio(false);
+      if (useIframeFallback) {
+        // In iframe fallback mode, sync progress from the YouTube player
+        void callVideo<number>('getCurrentTime').then((t) => {
+          if (typeof t === 'number' && Number.isFinite(t)) {
+            if (!isSeeking) setCurrentTime(t);
+          }
+        });
+        void callVideo<number>('getDuration').then((d) => {
+          if (typeof d === 'number' && Number.isFinite(d) && d > 0) {
+            setDuration(d);
+          }
+        });
+        // Update playing state from iframe
+        void callVideo<number>('getPlayerState').then((state) => {
+          if (state === 1) { // YT.PlayerState.PLAYING
+            if (!isPlaying) setIsPlaying(true);
+          } else if (state === 2) { // YT.PlayerState.PAUSED
+            if (isPlaying) setIsPlaying(false);
+          }
+        });
+      } else {
+        void syncVideoToAudio(false);
+      }
     }, 1000);
 
     return () => {
       window.clearInterval(interval);
     };
-  }, [currentTrack, syncVideoToAudio]);
+  }, [currentTrack, syncVideoToAudio, useIframeFallback, isSeeking, isPlaying, setIsPlaying, callVideo]);
 
   const handlePrev = useCallback(async () => {
     if (currentTime > 3) {
@@ -689,20 +733,27 @@ export function Player() {
       if (useIframeFallback) {
         // Iframe fallback mode — don't mute, let it play audio
         try { e.target?.unMute?.(); e.target?.setVolume?.(100); } catch(_) {}
+        // If we want to play and the iframe is now ready, start playback
+        if (desiredPlayingRef.current) {
+          e.target?.playVideo?.();
+          setIsPlaying(true);
+          isSwitchingTrackRef.current = false;
+          clearRetryPlayTimeout();
+        }
       } else {
         // Mute iframe — audio comes from native audio element
         try { e.target?.mute?.(); e.target?.setVolume?.(0); } catch(_) {}
       }
-      if ((audioRef.current?.currentTime || currentTime) > 0) {
+      if (!useIframeFallback && (audioRef.current?.currentTime || currentTime) > 0) {
           e.target?.seekTo?.(audioRef.current?.currentTime || currentTime, true);
       }
-      if (desiredPlayingRef.current && audioRef.current?.paused && audioRef.current?.src) {
+      if (!useIframeFallback && desiredPlayingRef.current && audioRef.current?.paused && audioRef.current?.src) {
           void safePlayerCall('playVideo').then((started) => {
               if (!started) retryPlayForCurrentTrack();
           });
-      } else if (desiredPlayingRef.current && !audioRef.current?.paused) {
+      } else if (!useIframeFallback && desiredPlayingRef.current && !audioRef.current?.paused) {
           e.target?.playVideo?.();
-      } else {
+      } else if (!useIframeFallback) {
           e.target?.pauseVideo?.();
       }
   };

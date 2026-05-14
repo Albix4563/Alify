@@ -1,6 +1,7 @@
 'use client';
 
 import { useAuth } from '@/lib/auth-context';
+import { usePlayerStore } from '@/lib/store';
 import { Sidebar } from '@/components/Sidebar';
 import { Player } from '@/components/Player';
 import { AuthForm } from '@/components/AuthForm';
@@ -31,6 +32,7 @@ class PlayerErrorBoundary extends Component<{ children: React.ReactNode }, { has
 
 export default function Home() {
   const { user, loading } = useAuth();
+  const currentTrackId = usePlayerStore((s) => s.currentTrack?.videoId || 'none');
   
   const [currentView, setCurrentView] = useState('home');
   const [currentPlaylist, setCurrentPlaylist] = useState(null);
@@ -78,7 +80,7 @@ export default function Home() {
         </main>
       </div>
       <BottomNav currentView={currentView} setCurrentView={setCurrentView} />
-      <PlayerErrorBoundary>
+      <PlayerErrorBoundary key={currentTrackId}>
         <Player />
       </PlayerErrorBoundary>
     </div>
