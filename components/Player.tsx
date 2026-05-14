@@ -9,7 +9,7 @@ import { db } from '@/lib/firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
 
-export function Player({ currentView }: { currentView?: string }) {
+export function Player() {
   const { user } = useAuth();
   const { currentTrack, isPlaying, setIsPlaying, playNext, playRequestId, loopMode, setLoopMode, shuffleMode, setShuffleMode, videoExpanded, setVideoExpanded } = usePlayerStore();
   const playerRef = useRef<any>(null);
@@ -29,7 +29,6 @@ export function Player({ currentView }: { currentView?: string }) {
   const [isMobile, setIsMobile] = useState(false);
   const [seekAnimation, setSeekAnimation] = useState<'forward' | 'backward' | null>(null);
   const [miniSwipeFeedback, setMiniSwipeFeedback] = useState<'next' | 'rewind' | null>(null);
-  const lastViewRef = useRef<string | undefined>(currentView);
 
   const triggerSeekAnimation = (type: 'forward' | 'backward') => {
       setSeekAnimation(type);
@@ -74,8 +73,9 @@ export function Player({ currentView }: { currentView?: string }) {
         setCurrentTime(0);
         setDuration(0);
         setIsStreamReady(false);
-        // We no longer expand automatically on track change to avoid blocking the UI.
-        setIsMobileExpanded(false);
+        if (window.innerWidth < 768) {
+           setIsMobileExpanded(true);
+        }
     }
     if (user && currentTrack) {
         const historyTrack = {
@@ -91,17 +91,6 @@ export function Player({ currentView }: { currentView?: string }) {
         }, { merge: true }).catch(e => console.error("Error saving history:", e));
     }
   }, [currentTrack, user]);
-
-  useEffect(() => {
-    if (!currentView) return;
-
-    const changedView = lastViewRef.current !== currentView;
-    lastViewRef.current = currentView;
-
-    if (changedView && window.innerWidth < 768) {
-      setIsMobileExpanded(false);
-    }
-  }, [currentView]);
 
   // Fetch audio stream URL when track changes
   useEffect(() => {
@@ -162,103 +151,343 @@ export function Player({ currentView }: { currentView?: string }) {
     };
   }, [currentTrack?.videoId]);
 
-  // Handle play/pause sync
+  const callVideo = useCallback(async <T = any,>(method: string, args: any[] = []): Promise<T | undefined> => {
+    const player = playerRef.current;
+    const internalPlayer = player?.internalPlayer || player?.getInternalPlayer?.() || player;
+
+    if (!internalPlayer || typeof internalPlayer[method] !== 'function') {
+      return undefined;
+    }
+
+    try {
+      return await internalPlayer[method](...args);
+    } catch (error) {
+      console.warn(`YouTube visual ${method} error:`, error);
+      return undefined;
+    }
+  }, []);
+
+  const syncVideoToAudio = useCallback(async (forceSeek = false) => {
+    const audio = audioRef.current;
+
+    if (!audio || !currentTrack || document.visibilityState === 'hidden') {
+      return;
+    }
+
+    await callVideo('mute');
+    await callVideo('setVolume', [0]);
+
+    const audioTime = audio.currentTime || 0;
+    const videoTime = await callVideo<number>('getCurrentTime');
+    const drift =
+      typeof videoTime === 'number' && Number.isFinite(videoTime)
+        ? Math.abs(videoTime - audioTime)
+        : Number.POSITIVE_INFINITY;
+
+    if (forceSeek || drift > 1.25) {
+      await callVideo('seekTo', [audioTime, true]);
+    }
+
+    if (audio.paused || audio.ended || audio.readyState < 3) {
+      await callVideo('pauseVideo');
+      return;
+    }
+
+    await callVideo('playVideo');
+  }, [callVideo, currentTrack]);
+
+  const safePlayerCall = useCallback(async (method: string, args: any[] = []) => {
+    try {
+      const audio = audioRef.current;
+
+      switch (method) {
+        case 'playVideo':
+          desiredPlayingRef.current = true;
+          if (!audio || !audio.src) return false;
+          if (audioCtxRef.current?.state === 'suspended') {
+            await audioCtxRef.current.resume().catch(() => {});
+          }
+          await audio.play();
+          setIsPlaying(true);
+          void syncVideoToAudio(true);
+          return true;
+        case 'pauseVideo':
+          desiredPlayingRef.current = false;
+          audio?.pause();
+          setIsPlaying(false);
+          await callVideo('pauseVideo');
+          return true;
+        case 'seekTo': 
+          if (audio && args[0] !== undefined) {
+            audio.currentTime = Number(args[0]) || 0;
+            setCurrentTime(audio.currentTime);
+            await syncVideoToAudio(true);
+          }
+          return true;
+        case 'getCurrentTime':
+          return audio?.currentTime || 0;
+        case 'getDuration':
+          return audio?.duration || 0;
+        default:
+          return callVideo(method, args);
+      }
+    } catch (e) {
+      console.warn(`SafePlayerCall ${method} error:`, e);
+      return false;
+    }
+  }, [callVideo, setIsPlaying, syncVideoToAudio]);
+
+  const handleNext = useCallback(async () => {
+    desiredPlayingRef.current = true;
+
+    if (loopMode === 'one' && currentTrack) {
+        await safePlayerCall('seekTo', [0]);
+        await safePlayerCall('playVideo');
+        return;
+    }
+    
+    playNext();
+  }, [currentTrack, loopMode, playNext, safePlayerCall]);
+
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
 
-    if (isPlaying && isStreamReady) {
-      const playPromise = audio.play();
-      if (playPromise !== undefined) {
-        playPromise.catch(() => {
-          setIsPlaying(false);
+    const onTimeUpdate = () => {
+      if (!isSeeking) setCurrentTime(audio.currentTime);
+    };
+    const onLoadedMeta = () => {
+      setDuration(audio.duration || 0);
+    };
+    const onEnded = () => {
+      void handleNext();
+    };
+    const onPlay = () => {
+      desiredPlayingRef.current = true;
+      setIsPlaying(true);
+      void syncVideoToAudio(true);
+    };
+    const onPause = () => {
+      setIsPlaying(false);
+      void callVideo('pauseVideo');
+    };
+    const onPlaying = () => {
+      void syncVideoToAudio(true);
+    };
+    const onWaiting = () => {
+      void callVideo('pauseVideo');
+    };
+
+    audio.addEventListener('timeupdate', onTimeUpdate);
+    audio.addEventListener('loadedmetadata', onLoadedMeta);
+    audio.addEventListener('ended', onEnded);
+    audio.addEventListener('play', onPlay);
+    audio.addEventListener('pause', onPause);
+    audio.addEventListener('playing', onPlaying);
+    audio.addEventListener('waiting', onWaiting);
+
+    return () => {
+      audio.removeEventListener('timeupdate', onTimeUpdate);
+      audio.removeEventListener('loadedmetadata', onLoadedMeta);
+      audio.removeEventListener('ended', onEnded);
+      audio.removeEventListener('play', onPlay);
+      audio.removeEventListener('pause', onPause);
+      audio.removeEventListener('playing', onPlaying);
+      audio.removeEventListener('waiting', onWaiting);
+    };
+  }, [callVideo, isSeeking, handleNext, setIsPlaying, syncVideoToAudio]);
+
+  useEffect(() => {
+    if (!currentTrack || !isStreamReady || streamVideoId !== currentTrack.videoId) {
+      return;
+    }
+
+    const hasNewPlayRequest = playRequestId > lastPlayRequestRef.current;
+    if (!desiredPlayingRef.current && !hasNewPlayRequest) {
+      void syncVideoToAudio(true);
+      return;
+    }
+
+    lastPlayRequestRef.current = Math.max(lastPlayRequestRef.current, playRequestId);
+    desiredPlayingRef.current = true;
+    void safePlayerCall('playVideo');
+  }, [
+    currentTrack,
+    isStreamReady,
+    playRequestId,
+    safePlayerCall,
+    streamVideoId,
+    syncVideoToAudio,
+  ]);
+
+  useEffect(() => {
+    if (currentTrack && 'mediaSession' in navigator) {
+        navigator.mediaSession.metadata = new MediaMetadata({
+            title: currentTrack.title,
+            artist: currentTrack.channelTitle,
+            artwork: [{ src: currentTrack.thumbnailUrl, sizes: '512x512', type: 'image/jpeg' }]
         });
-      }
-    } else {
-      audio.pause();
+        navigator.mediaSession.setActionHandler('play', async () => {
+            await safePlayerCall('playVideo');
+            setIsPlaying(true);
+        });
+        navigator.mediaSession.setActionHandler('pause', async () => {
+            await safePlayerCall('pauseVideo');
+            setIsPlaying(false);
+        });
+        navigator.mediaSession.setActionHandler('nexttrack', () => handleNext());
+        navigator.mediaSession.setActionHandler('previoustrack', async () => {
+            await safePlayerCall('seekTo', [0]);
+            setIsPlaying(true);
+        });
+        navigator.mediaSession.setActionHandler('seekto', (details) => {
+            if (details.seekTime !== undefined) {
+                safePlayerCall('seekTo', [details.seekTime]);
+                setCurrentTime(details.seekTime);
+            }
+        });
     }
-  }, [isPlaying, isStreamReady]);
+    return () => {
+      if (!('mediaSession' in navigator)) return;
+      try {
+        navigator.mediaSession.setActionHandler('play', null);
+        navigator.mediaSession.setActionHandler('pause', null);
+        navigator.mediaSession.setActionHandler('nexttrack', null);
+        navigator.mediaSession.setActionHandler('previoustrack', null);
+        navigator.mediaSession.setActionHandler('seekto', null);
+      } catch {}
+    };
+  }, [currentTrack, setIsPlaying, handleNext, safePlayerCall]);
 
-  // Sync YouTube player with audio element
-  const syncVideoToAudio = useCallback(async (isUserAction = false) => {
-    const audio = audioRef.current;
-    const player = playerRef.current?.getInternalPlayer();
-    
-    if (!audio || !player) return;
+  useEffect(() => {
+    if ('audioSession' in navigator) {
+      try { (navigator as any).audioSession.type = 'playback'; } catch(e) {}
+    }
+  }, []);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
     try {
-      const audioTime = audio.currentTime;
-      const playerTime = await player.getCurrentTime();
-      
-      // Keep video slightly ahead to buffer correctly, or sync if drift is > 0.5s
-      if (Math.abs(audioTime - playerTime) > 0.5) {
-        player.seekTo(audioTime, true);
-      }
+      const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (!AC) return;
+      const ctx = new AC();
+      audioCtxRef.current = ctx;
+      const unlock = () => {
+        if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+        try {
+          const buf = ctx.createBuffer(1, 1, 22050);
+          const src = ctx.createBufferSource();
+          src.buffer = buf;
+          const gain = ctx.createGain();
+          gain.gain.value = 0;
+          src.connect(gain);
+          gain.connect(ctx.destination);
+          src.start(0);
+        } catch(e) {}
+      };
+      document.addEventListener('touchstart', unlock, { once: true, passive: true });
+      document.addEventListener('click', unlock, { once: true, passive: true });
+      return () => {
+        document.removeEventListener('touchstart', unlock);
+        document.removeEventListener('click', unlock);
+        ctx.close().catch(() => {});
+      };
+    } catch(e) {}
+  }, []);
 
-      if (isPlaying) {
-        player.playVideo();
-      } else {
-        player.pauseVideo();
-      }
-    } catch (e) {
-      // Player might not be ready yet
+  const togglePlayPause = () => {
+    if (isPlaying) {
+      void safePlayerCall('pauseVideo');
+      return;
     }
+
+    void safePlayerCall('playVideo');
+  };
+
+  useEffect(() => {
+     if ('mediaSession' in navigator) {
+         try {
+             navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
+         } catch (e) {}
+     }
   }, [isPlaying]);
 
   useEffect(() => {
+    const handleVisibility = () => {
+        if (document.visibilityState === 'visible') {
+            if (audioCtxRef.current?.state === 'suspended') {
+                audioCtxRef.current.resume().catch(() => {});
+            }
+            if (desiredPlayingRef.current && audioRef.current?.paused) {
+                void safePlayerCall('playVideo');
+                return;
+            }
+            void syncVideoToAudio(true);
+        }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [safePlayerCall, syncVideoToAudio]);
+
+  useEffect(() => {
     if (!currentTrack) return;
+
     const interval = window.setInterval(() => {
       void syncVideoToAudio(false);
     }, 1000);
-    return () => window.clearInterval(interval);
+
+    return () => {
+      window.clearInterval(interval);
+    };
   }, [currentTrack, syncVideoToAudio]);
 
-  const handlePlayerReady = (event: any) => {
-    const player = event.target;
-    player.mute();
-    if (isPlaying) {
-      player.playVideo();
+  const handlePrev = async () => {
+    if (currentTime > 3) {
+      await safePlayerCall('seekTo', [0]);
+      setCurrentTime(0);
+    } else {
+      await safePlayerCall('seekTo', [0]);
+      setCurrentTime(0);
     }
   };
 
-  const handlePlayerStateChange = (event: any) => {
-    // Sync is handled by interval, but we can capture major state changes
-    if (event.data === 0) { // Ended
-      playNext();
-    }
+  const formatTime = (seconds: number) => {
+    if (!seconds || isNaN(seconds)) return "0:00";
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
-  const handlePlayerError = (event: any) => {
-    console.error('YouTube Player Error:', event.data);
-    // Silent error, audio is the source of truth
+  if (!currentTrack) return null;
+
+  const toggleLoop = () => {
+     if (loopMode === 'off') setLoopMode('all');
+     else if (loopMode === 'all') setLoopMode('one');
+     else setLoopMode('off');
   };
 
-  const formatTime = (time: number) => {
-    const minutes = Math.floor(time / 60);
-    const seconds = Math.floor(time % 60);
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
-  };
-
-  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const time = parseFloat(e.target.value);
-    setCurrentTime(time);
-    if (audioRef.current) {
-      audioRef.current.currentTime = time;
-    }
-    syncVideoToAudio(true);
-  };
-
-  const togglePlay = () => {
-    setIsPlaying(!isPlaying);
-  };
-
-  const safePlayerCall = (method: string, args: any[] = []) => {
-    try {
-      const player = playerRef.current?.getInternalPlayer();
-      if (player && typeof player[method] === 'function') {
-        player[method](...args);
+  const handlePlayerReady = (e: any) => {
+      playerRef.current = e.target;
+      // Mute iframe — audio comes from native audio element
+      try { e.target?.mute?.(); e.target?.setVolume?.(0); } catch(_) {}
+      if ((audioRef.current?.currentTime || currentTime) > 0) {
+          e.target?.seekTo?.(audioRef.current?.currentTime || currentTime, true);
       }
-    } catch (e) {}
+      if (desiredPlayingRef.current && !audioRef.current?.paused) {
+          e.target?.playVideo?.();
+      } else {
+          e.target?.pauseVideo?.();
+      }
+  };
+
+  const handleSeekChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setIsSeeking(true);
+    setCurrentTime(parseFloat(e.target.value));
+  };
+
+  const handleSeekCommit = () => {
+    void safePlayerCall('seekTo', [currentTime]);
+    setIsSeeking(false);
   };
 
   const handleSeekForward = () => {
@@ -275,14 +504,6 @@ export function Player({ currentView }: { currentView?: string }) {
        triggerSeekAnimation('backward');
   };
 
-  const handleDragEnd = (event: any, info: any) => {
-      if (info.offset.y > 100) {
-          setIsMobileExpanded(false);
-      }
-  };
-
-  if (!currentTrack) return null;
-
   return (
     <>
       <audio 
@@ -291,19 +512,6 @@ export function Player({ currentView }: { currentView?: string }) {
         playsInline 
         webkit-playsinline="true"
         x-webkit-airplay="allow"
-        onTimeUpdate={() => {
-          if (!isSeeking && audioRef.current) {
-            setCurrentTime(audioRef.current.currentTime);
-          }
-        }}
-        onDurationChange={() => {
-          if (audioRef.current) {
-            setDuration(audioRef.current.duration);
-          }
-        }}
-        onEnded={() => {
-           playNext();
-        }}
         style={{ position: 'absolute', left: '-9999px', width: '1px', height: '1px', opacity: 0 }} 
       />
       <div 
@@ -329,8 +537,9 @@ export function Player({ currentView }: { currentView?: string }) {
                 videoId={currentTrack?.videoId || ''}
                 opts={{ width: '100%', height: '100%', playerVars: { autoplay: 0, controls: 0, modestbranding: 1, rel: 0, showinfo: 0, disablekb: 1, playsinline: 1 } }}
                 onReady={handlePlayerReady}
-                onStateChange={handlePlayerStateChange}
-                onError={handlePlayerError}
+                onError={() => { 
+                   console.warn("YouTube visual player error.");
+                }}
              />
           </div>
       </div>
@@ -400,188 +609,248 @@ export function Player({ currentView }: { currentView?: string }) {
                   </div>
               </div>
 
-              <div className="flex-1 flex flex-col items-center justify-center space-y-8 z-[102] relative">
-                  <motion.div 
-                    initial={{ scale: 0.9, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    className="w-full aspect-square max-w-[300px] relative rounded-3xl overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/10"
-                  >
-                      <img src={currentTrack.thumbnailUrl} alt={currentTrack.title} className="w-full h-full object-cover" />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
-                  </motion.div>
-
-                  <div className="w-full text-center space-y-2 px-6">
-                      <motion.h2 
-                        initial={{ y: 20, opacity: 0 }}
-                        animate={{ y: 0, opacity: 1 }}
-                        className="text-2xl font-bold text-white line-clamp-1 drop-shadow-md"
-                      >
-                        {currentTrack.title}
-                      </motion.h2>
-                      <motion.p 
-                        initial={{ y: 20, opacity: 0 }}
-                        animate={{ y: 0, opacity: 1 }}
-                        transition={{ delay: 0.1 }}
-                        className="text-blue-200/60 font-medium text-lg drop-shadow-md"
-                      >
-                        {currentTrack.channelTitle}
-                      </motion.p>
-                  </div>
-              </div>
-
-              <div className="w-full space-y-8 pb-10 px-6 z-[102] relative">
-                  <div className="space-y-3">
-                      <div className="relative h-1.5 w-full bg-white/10 rounded-full overflow-hidden">
-                          <motion.div 
-                            className="absolute top-0 left-0 h-full bg-gradient-to-r from-blue-500 to-sky-400"
-                            style={{ width: `${(currentTime / duration) * 100}%` }}
-                          />
-                          <input 
-                            type="range"
-                            min="0"
-                            max={duration || 0}
-                            value={currentTime}
-                            onChange={handleSeek}
-                            onMouseDown={() => setIsSeeking(true)}
-                            onMouseUp={() => setIsSeeking(false)}
-                            onTouchStart={() => setIsSeeking(true)}
-                            onTouchEnd={() => setIsSeeking(false)}
-                            className="absolute inset-0 w-full opacity-0 cursor-pointer z-10"
-                          />
+              <div className="flex flex-col justify-end w-full mt-auto mb-0 z-[102] pt-6 pb-2">
+                  <div className="flex items-center justify-between mb-4">
+                      <AnimatePresence mode="popLayout" initial={false}>
+                        <motion.div 
+                          key={currentTrack.videoId}
+                          initial={{ opacity: 0, y: 15, filter: "blur(8px)" }}
+                          animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                          exit={{ opacity: 0, y: -15, filter: "blur(8px)" }}
+                          transition={{ duration: 0.6, type: "spring", stiffness: 80, damping: 20 }}
+                          className="flex flex-col flex-1 overflow-hidden pr-4"
+                        >
+                          <h2 className="text-xl font-bold text-white truncate drop-shadow-lg">{currentTrack.title}</h2>
+                          <p className="text-sm text-blue-300/80 truncate font-medium drop-shadow-md">{currentTrack.channelTitle}</p>
+                        </motion.div>
+                      </AnimatePresence>
+                      <div className="flex items-center gap-3">
+                          <button className="text-white/70 hover:text-white transition-colors active:scale-90">
+                               <Heart className="w-5 h-5" />
+                          </button>
+                          <button className="text-white/70 hover:text-white transition-colors active:scale-90">
+                               <ListPlus className="w-5 h-5" />
+                          </button>
                       </div>
-                      <div className="flex justify-between text-[11px] font-bold text-blue-200/40 uppercase tracking-widest">
+                  </div>
+
+                  <div className="flex flex-col gap-1.5 mb-6 w-full group/slider relative">
+                      <div className="relative flex items-center justify-center h-6 w-full">
+                          <input 
+                              type="range"
+                              min={0}
+                              max={duration || 100}
+                              step={0.1}
+                              value={currentTime}
+                              onChange={handleSeekChange}
+                              onMouseUp={handleSeekCommit}
+                              onTouchEnd={handleSeekCommit}
+                              className="absolute z-20 w-full h-full opacity-0 cursor-pointer touch-pan-x"
+                          />
+                          <div className="w-full h-1.5 bg-white/20 rounded-full overflow-hidden shadow-inner flex items-center relative z-10">
+                              <div className="h-full bg-blue-500 rounded-full transition-all duration-150 ease-out shadow-[0_0_10px_rgba(59,130,246,0.8)]" style={{ width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }} />
+                          </div>
+                      </div>
+                      <div className="flex justify-between text-xs font-medium text-white/50 tracking-wide mt-1">
                           <span>{formatTime(currentTime)}</span>
                           <span>{formatTime(duration)}</span>
                       </div>
                   </div>
 
-                  <div className="flex items-center justify-between">
-                      <button 
-                        onClick={() => setShuffleMode(!shuffleMode)}
-                        className={`p-3 rounded-full transition-all ${shuffleMode ? 'text-sky-400 bg-sky-400/10' : 'text-white/40'}`}
-                      >
+                  <div className="flex items-center justify-between mb-4 px-1">
+                      <button className={`p-2 transition-all ${shuffleMode ? 'text-sky-400' : 'text-white/60 hover:text-white'}`} onClick={() => setShuffleMode(!shuffleMode)}>
                           <Shuffle className="w-5 h-5" />
                       </button>
-                      <div className="flex items-center space-x-6">
-                          <button onClick={() => safePlayerCall('seekTo', [currentTime - 10])} className="text-white/80 hover:text-white p-2">
-                              <SkipBack className="w-8 h-8 fill-current" />
+                      
+                      <div className="flex items-center gap-2">
+                          <button className="text-white/90 hover:text-sky-400 p-2 transition-all active:scale-90" onClick={handlePrev}>
+                              <SkipBack className="w-7 h-7 fill-currentColor drop-shadow-md" />
                           </button>
-                          <button 
-                            onClick={togglePlay}
-                            className="w-20 h-20 bg-white text-black rounded-full flex items-center justify-center shadow-xl hover:scale-105 active:scale-95 transition-all"
-                          >
-                              {isPlaying ? <Pause className="w-8 h-8 fill-current" /> : <Play className="w-8 h-8 fill-current ml-1" />}
+                          <button className="text-white/80 hover:text-white p-2 transition-transform active:scale-90" onClick={handleSeekBackward}>
+                              <Rewind className="w-6 h-6 fill-currentColor drop-shadow-md" />
                           </button>
-                          <button onClick={playNext} className="text-white/80 hover:text-white p-2">
-                              <SkipForward className="w-8 h-8 fill-current" />
+                          
+                          <div className="relative mx-1">
+                               <button 
+                                  className="w-16 h-16 flex items-center justify-center bg-blue-500 hover:bg-blue-400 text-white shadow-[0_8px_32px_rgba(59,130,246,0.5)] rounded-full hover:scale-105 active:scale-95 transition-all" 
+                                  onClick={togglePlayPause}
+                               >
+                                   {isPlaying ? <Pause className="w-7 h-7 fill-currentColor" /> : <Play className="w-7 h-7 fill-currentColor ml-1" />}
+                               </button>
+                          </div>
+                          
+                          <button className="text-white/80 hover:text-white p-2 transition-transform active:scale-90" onClick={handleSeekForward}>
+                              <FastForward className="w-6 h-6 fill-currentColor drop-shadow-md" />
+                          </button>
+                          <button className="text-white/90 hover:text-sky-400 p-2 transition-all active:scale-90" onClick={handleNext}>
+                              <SkipForward className="w-7 h-7 fill-currentColor drop-shadow-md" />
                           </button>
                       </div>
-                      <button 
-                        onClick={() => setLoopMode(loopMode === 'none' ? 'all' : loopMode === 'all' ? 'one' : 'none')}
-                        className={`p-3 rounded-full transition-all ${loopMode !== 'none' ? 'text-sky-400 bg-sky-400/10' : 'text-white/40'}`}
-                      >
+
+                      <button className={`p-2 transition-all ${loopMode !== 'off' ? 'text-sky-400' : 'text-white/60 hover:text-white'}`} onClick={toggleLoop}>
                           {loopMode === 'one' ? <Repeat1 className="w-5 h-5" /> : <Repeat className="w-5 h-5" />}
                       </button>
                   </div>
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-        <motion.div 
+      <motion.div 
          initial={false}
          animate={{
             y: isMobileExpanded ? 0 : (isMobile ? (scrollingDown ? 76 : 0) : 0),
             scale: isMobile && scrollingDown ? 0.95 : 1,
             x: 0 // reset x
          }}
-         style={{ 
-            pointerEvents: isMobileExpanded ? 'none' : 'auto',
-            touchAction: 'none'
+         drag={isMobile && !isMobileExpanded ? "x" : false}
+         dragConstraints={{ left: 0, right: 0 }}
+         dragElastic={0.7}
+         onDragEnd={(e, { offset, velocity }) => {
+            if (isMobile && !isMobileExpanded) {
+               if (offset.x < -80 || velocity.x < -500) {
+                   triggerMiniSwipeFeedback('next');
+                   handleNext();
+                   return;
+               }
+               if (offset.x > 80 || velocity.x > 500) {
+                   triggerMiniSwipeFeedback('rewind');
+                   handleSeekBackward();
+               }
+            }
          }}
-         drag={isMobile ? "y" : false}
-         dragConstraints={{ top: 0, bottom: 0 }}
-         dragElastic={0.2}
-         onDragEnd={handleDragEnd}
+         transition={{ type: "spring", stiffness: 400, damping: 25, mass: 1 }}
          className={`fixed z-50 left-3 right-3 bottom-[96px] md:bottom-6 md:left-1/2 md:right-auto md:-translate-x-1/2 md:w-[760px] bg-black/60 backdrop-blur-3xl border border-white/20 rounded-[28px] shadow-[0_8px_30px_rgb(0,0,0,0.6)] flex flex-col transition-opacity duration-300 ${isMobileExpanded ? 'opacity-0 pointer-events-none' : 'opacity-100 pointer-events-auto'}`}
+         onClick={(e) => {
+             if (window.innerWidth < 768 && (e.target as HTMLElement).closest('.player-footer-clickable')) {
+                 setIsMobileExpanded(true);
+             }
+         }}
       >
-          {/* Mini Player with Swipe feedback */}
-          <div className="relative overflow-hidden rounded-[28px]">
-              <AnimatePresence>
-                  {miniSwipeFeedback === 'next' && (
-                      <motion.div 
-                          initial={{ x: '100%' }}
-                          animate={{ x: 0 }}
-                          exit={{ x: '-100%' }}
-                          className="absolute inset-0 bg-blue-500/20 backdrop-blur-md z-10 flex items-center justify-end pr-8"
-                      >
-                          <SkipForward className="w-6 h-6 text-white" />
-                      </motion.div>
-                  )}
-                  {miniSwipeFeedback === 'rewind' && (
-                      <motion.div 
-                          initial={{ x: '-100%' }}
-                          animate={{ x: 0 }}
-                          exit={{ x: '100%' }}
-                          className="absolute inset-0 bg-white/10 backdrop-blur-md z-10 flex items-center justify-start pl-8"
-                      >
-                          <Rewind className="w-6 h-6 text-white" />
-                      </motion.div>
-                  )}
-              </AnimatePresence>
-
-              <div 
-                className="flex items-center h-[72px] px-2 md:px-4 cursor-pointer md:cursor-default relative z-0"
-                onClick={() => isMobile && setIsMobileExpanded(true)}
-              >
-                  {/* Progress Bar (at the very bottom of the mini player) */}
-                  <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-white/5">
-                      <motion.div 
-                        className="h-full bg-gradient-to-r from-blue-500 to-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.4)]"
-                        style={{ width: `${(currentTime / duration) * 100}%` }}
-                      />
-                  </div>
-
-                  <div className="w-12 h-12 md:w-14 md:h-14 rounded-2xl overflow-hidden shadow-lg border border-white/10 flex-shrink-0 group relative">
-                      <img src={currentTrack.thumbnailUrl} alt={currentTrack.title} className="w-full h-full object-cover" />
-                      <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Maximize2 className="w-5 h-5 text-white" onClick={(e) => { e.stopPropagation(); setIsMobileExpanded(true); }} />
-                      </div>
-                  </div>
-
-                  <div className="ml-3 md:ml-4 flex-1 min-w-0 pr-2">
-                      <h4 className="text-[13px] md:text-[15px] font-bold text-white truncate drop-shadow-sm">{currentTrack.title}</h4>
-                      <p className="text-[11px] md:text-[13px] text-blue-200/60 font-medium truncate">{currentTrack.channelTitle}</p>
-                  </div>
-
-                  <div className="flex items-center space-x-1 md:space-x-2">
-                      <button onClick={(e) => { e.stopPropagation(); safePlayerCall('seekTo', [currentTime - 10]); triggerMiniSwipeFeedback('rewind'); }} className="hidden md:flex p-2 text-white/60 hover:text-white transition-colors">
-                          <Rewind className="w-5 h-5" />
-                      </button>
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); togglePlay(); }}
-                        className="w-10 h-10 md:w-12 md:h-12 bg-white text-black rounded-full flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-all"
-                      >
-                          {isPlaying ? <Pause className="w-5 h-5 md:w-6 md:h-6 fill-current" /> : <Play className="w-5 h-5 md:w-6 md:h-6 fill-current ml-0.5" />}
-                      </button>
-                      <button onClick={(e) => { e.stopPropagation(); playNext(); triggerMiniSwipeFeedback('next'); }} className="p-2 text-white/60 hover:text-white transition-colors">
-                          <SkipForward className="w-5 h-5 md:w-6 md:h-6" />
-                      </button>
-                  </div>
-
-                  <div className="hidden md:flex items-center space-x-2 ml-4 pl-4 border-l border-white/10">
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); setVideoExpanded(!videoExpanded); }}
-                        className={`p-2 transition-colors ${videoExpanded ? 'text-sky-400 bg-sky-400/10' : 'text-white/40 hover:text-white'} rounded-full`}
-                        title="Espandi Video"
-                      >
-                          <Maximize2 className="w-4 h-4" />
-                      </button>
-                  </div>
+        <AnimatePresence>
+          {miniSwipeFeedback && (
+            <motion.div
+              key={miniSwipeFeedback}
+              initial={{ opacity: 0, scale: 0.8, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.8, y: -8 }}
+              className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center"
+            >
+              <div className="px-4 py-3 rounded-2xl bg-black/65 border border-white/15 backdrop-blur-lg text-white text-sm font-semibold shadow-xl flex items-center gap-2">
+                {miniSwipeFeedback === 'next' ? (
+                  <>
+                    <SkipForward className="w-4 h-4 fill-current" />
+                    Prossimo brano
+                  </>
+                ) : (
+                  <>
+                    <Rewind className="w-4 h-4 fill-current" />
+                    Indietro 10s
+                  </>
+                )}
               </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <footer className="player-footer-clickable h-[64px] md:h-[72px] px-2 flex py-1 flex-shrink-0 items-center justify-between w-full cursor-pointer md:cursor-default overflow-hidden hover:bg-white/5 transition-colors rounded-[24px]">
+          <AnimatePresence mode="popLayout" initial={false}>
+            <motion.div 
+              key={currentTrack.videoId}
+              initial={{ opacity: 0, x: 20, filter: "blur(8px)" }}
+              animate={{ opacity: 1, x: 0, filter: "blur(0px)" }}
+              exit={{ opacity: 0, x: -20, filter: "blur(8px)" }}
+              transition={{ duration: 0.6, type: "spring", stiffness: 80, damping: 20 }}
+              className="flex items-center flex-1 md:w-[30%] md:flex-none md:min-w-[180px] overflow-hidden drop-shadow-md"
+            >
+              <div className="w-11 h-11 md:w-14 md:h-14 bg-black/40 rounded-[12px] md:rounded-[16px] overflow-hidden flex-shrink-0 mr-3 border border-white/10 shadow-lg relative ml-1">
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent z-10 pointer-events-none" />
+                <img src={currentTrack.thumbnailUrl} alt={currentTrack.title} className="w-full h-full object-cover relative z-0" />
+              </div>
+              <div className="overflow-hidden flex flex-col justify-center">
+                <h4 className="text-[13px] md:text-[14px] font-bold truncate text-white leading-tight mb-1">{currentTrack.title}</h4>
+                <p className="text-[11px] md:text-[12px] font-medium text-blue-300/70 truncate leading-tight">{currentTrack.channelTitle}</p>
+              </div>
+            </motion.div>
+          </AnimatePresence>
+
+          <div className="flex md:hidden items-center justify-end gap-3 ml-4" onClick={e => e.stopPropagation()}>
+              <button className="p-2 text-white/70 hover:text-white transition-colors" onClick={handleNext}>
+                  <SkipForward className="w-5 h-5 fill-currentColor" />
+              </button>
+              <button 
+                  className="w-10 h-10 flex items-center justify-center bg-white/10 hover:bg-white/20 rounded-full text-white transition-all active:scale-95" 
+                  onClick={togglePlayPause}
+                >
+                  {isPlaying ? <Pause className="w-5 h-5 fill-currentColor" /> : <Play className="w-5 h-5 fill-currentColor ml-1" />}
+              </button>
           </div>
-        </motion.div>
-        </>
+
+          <div className="hidden md:flex flex-col items-center max-w-[722px] w-[40%]">
+            <div className="flex items-center justify-center gap-6 mb-2">
+               <button 
+                  className={`transition-colors hover:scale-110 flex items-center justify-center ${shuffleMode ? 'text-sky-400' : 'text-blue-200/60 hover:text-white'}`}
+                  onClick={() => setShuffleMode(!shuffleMode)}
+                  title="Casuale"
+               >
+                  <Shuffle className="w-4 h-4 md:w-5 md:h-5 fill-currentColor drop-shadow-md" />
+               </button>
+               <button className="text-blue-200/60 hover:text-white transition-colors hover:scale-110" onClick={handleNext}>
+                  <SkipForward className="w-5 h-5 fill-currentColor drop-shadow-md rotate-180" />
+               </button>
+               <button 
+                  className="w-12 h-12 flex items-center justify-center bg-white/10 hover:bg-white/20 rounded-full backdrop-blur-md border border-white/10 shadow-[0_0_15px_rgba(56,189,248,0.2)] text-blue-200 hover:text-white transition-all hover:scale-105" 
+                  onClick={togglePlayPause}
+                >
+                  {isPlaying ? <Pause className="w-6 h-6 fill-currentColor text-white drop-shadow-md" /> : <Play className="w-6 h-6 fill-currentColor ml-1 text-white drop-shadow-md" />}
+               </button>
+               <button className="text-blue-200/60 hover:text-white transition-colors hover:scale-110 relative" onClick={handleNext}>
+                  <SkipForward className="w-5 h-5 fill-currentColor drop-shadow-md" />
+               </button>
+               <button 
+                  className={`transition-colors hover:scale-110 flex items-center justify-center ${loopMode !== 'off' ? 'text-sky-400' : 'text-blue-200/60 hover:text-white'}`}
+                  onClick={toggleLoop}
+                  title="Ripeti"
+               >
+                  {loopMode === 'one' ? <Repeat1 className="w-4 h-4 md:w-5 md:h-5 drop-shadow-md" /> : <Repeat className="w-4 h-4 md:w-5 md:h-5 drop-shadow-md" />}
+               </button>
+            </div>
+            <div className="w-full flex items-center gap-2 group">
+                <span className="text-[11px] font-medium text-blue-200/60 w-10 text-right">{formatTime(currentTime)}</span>
+                <div className="relative flex-1 flex items-center group/slider h-4">
+                    <div className="absolute w-full h-1 bg-white/10 rounded-full overflow-hidden">
+                        <div className="h-full bg-white transition-all group-hover/slider:bg-sky-400" style={{ width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }} />
+                    </div>
+                    <input 
+                        type="range"
+                        min={0}
+                        max={duration || 100}
+                        value={currentTime}
+                        onChange={handleSeekChange}
+                        onMouseUp={handleSeekCommit}
+                        onTouchEnd={handleSeekCommit}
+                        className="absolute w-full h-full opacity-0 cursor-pointer"
+                    />
+                </div>
+                <span className="text-[11px] font-medium text-blue-200/60 w-10">{formatTime(duration)}</span>
+            </div>
+          </div>
+
+          <div className="hidden md:flex items-center justify-end w-[30%] min-w-[180px] pr-2 gap-4">
+              <button 
+                 className="text-blue-200/60 hover:text-white transition-colors hover:scale-110" 
+                 onClick={() => setVideoExpanded(!videoExpanded)}
+                 title={videoExpanded ? "Riduci Finestra Video" : "Ingrandisci Video"}
+              >
+                 {videoExpanded ? <Minimize2 className="w-5 h-5 drop-shadow-md" /> : <Maximize2 className="w-5 h-5 drop-shadow-md" />}
+              </button>
+          </div>
+        </footer>
+        <div className="md:hidden text-[10px] text-blue-200/40 px-4 pb-2 -mt-1 tracking-wide">
+          Swipe: sinistra = prossimo, destra = -10s
+        </div>
+      </motion.div>
+      </>
       )}
     </>
   );

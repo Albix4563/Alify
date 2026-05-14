@@ -65,9 +65,7 @@ export function MainContent({
   setCurrentPlaylist,
 }: any) {
   const { user } = useAuth();
-  const setCurrentTrack = usePlayerStore((state) => state.setCurrentTrack);
-  const setQueue = usePlayerStore((state) => state.setQueue);
-  const setAudioQuality = usePlayerStore((state) => state.setAudioQuality);
+  const { setCurrentTrack, setQueue, setAudioQuality } = usePlayerStore();
 
   const getGreeting = () => {
     const hour = new Date().getHours();
