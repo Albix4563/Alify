@@ -66,7 +66,7 @@ export function Player() {
   const playAttemptRef = useRef(0);
 
   const [isReady, setIsReady] = useState(false);
-  const [nativeControlsEnabled, setNativeControlsEnabled] = useState(false);
+  const [pipMode, setPipMode] = useState<'off' | 'youtube' | 'ios'>('off');
   const [isMobile, setIsMobile] = useState(false);
   const [isMobileExpanded, setIsMobileExpanded] = useState(false);
   const [scrollingDown, setScrollingDown] = useState(false);
@@ -80,6 +80,16 @@ export function Player() {
   const [miniSwipeFeedback, setMiniSwipeFeedback] = useState<
     'next' | 'rewind' | null
   >(null);
+
+  const isIOSDevice = () => {
+    if (typeof navigator === 'undefined') return false;
+    return (
+      /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+    );
+  };
+  const nativeControlsEnabled = pipMode !== 'off';
+  const isIOSPiPMode = pipMode === 'ios';
 
   const formatTime = (seconds: number) => {
     if (!seconds || Number.isNaN(seconds)) return '0:00';
@@ -332,25 +342,77 @@ export function Player() {
 
   const enablePictureInPictureMode = useCallback(async () => {
     if (!currentTrack) return;
-    const time = await callYoutube<number>('getCurrentTime');
-    if (typeof time === 'number' && Number.isFinite(time)) {
-      setCurrentTime(time);
-    }
+    const savedTime = await callYoutube<number>('getCurrentTime');
+    const safeTime =
+      typeof savedTime === 'number' && Number.isFinite(savedTime)
+        ? savedTime
+        : currentTime;
+    setCurrentTime(safeTime);
     desiredPlayingRef.current = true;
-    setNativeControlsEnabled(true);
+    const nextPipMode: 'ios' | 'youtube' = isIOSDevice() ? 'ios' : 'youtube';
+    setPipMode(nextPipMode);
     setVideoExpanded(true);
     setIsMobileExpanded(false);
-    void startYoutubePlayback('manual-pip-mode');
-    toast.message('Modalità PiP pronta', {
-      description:
-        'Usa il pulsante PiP nei controlli del video, poi esci dall’app.',
-    });
+    /*
+     * Il cambio di pipMode forza il remount del player tramite key.
+     * Aspettiamo un attimo, poi ripristiniamo posizione e playback.
+     */
+    window.setTimeout(() => {
+      const player = youtubePlayerRef.current;
+      try {
+        if (player && typeof player.seekTo === 'function') {
+          player.seekTo(safeTime, true);
+        }
+        if (player && typeof player.playVideo === 'function') {
+          player.playVideo();
+        }
+        setMediaState('playing');
+      } catch (error) {
+        console.warn('PiP preparation failed:', error);
+      }
+    }, 350);
+    toast.message(
+      nextPipMode === 'ios'
+        ? 'Modalità video iPhone pronta'
+        : 'Modalità PiP pronta',
+      {
+        description:
+          nextPipMode === 'ios'
+            ? 'Il player è stato preparato per iPhone. Apri il video a schermo intero e prova a uscire dall’app o usare il PiP di iOS.'
+            : 'Usa il pulsante PiP nei controlli del video, poi esci dall’app.',
+      },
+    );
   }, [
     callYoutube,
     currentTrack,
+    currentTime,
+    setMediaState,
     setVideoExpanded,
-    startYoutubePlayback,
   ]);
+
+  const disablePictureInPictureMode = useCallback(async () => {
+    const savedTime = await callYoutube<number>('getCurrentTime');
+    const safeTime =
+      typeof savedTime === 'number' && Number.isFinite(savedTime)
+        ? savedTime
+        : currentTime;
+    setCurrentTime(safeTime);
+    setPipMode('off');
+    setVideoExpanded(false);
+    window.setTimeout(() => {
+      const player = youtubePlayerRef.current;
+      try {
+        if (player && typeof player.seekTo === 'function') {
+          player.seekTo(safeTime, true);
+        }
+        if (desiredPlayingRef.current && player && typeof player.playVideo === 'function') {
+          player.playVideo();
+        }
+      } catch (error) {
+        console.warn('Exit PiP mode failed:', error);
+      }
+    }, 350);
+  }, [callYoutube, currentTime, setVideoExpanded]);
 
   const toggleLoop = () => {
     if (loopMode === 'off') {
@@ -382,6 +444,7 @@ export function Player() {
             'autoplay; encrypted-media; picture-in-picture; fullscreen',
           );
           iframe.setAttribute('allowfullscreen', 'true');
+          iframe.setAttribute('webkitallowfullscreen', 'true');
         }
       } catch {
         // Alcuni browser/player possono non esporre getIframe.
@@ -514,6 +577,7 @@ export function Player() {
       setMediaState('paused');
       setIsMobileExpanded(false);
       setVideoExpanded(false);
+      setPipMode('off');
 
       return;
     }
@@ -752,21 +816,44 @@ export function Player() {
           }
         >
           <YouTube
-            key={`${currentTrack?.videoId || 'empty'}-${
-              nativeControlsEnabled ? 'native-controls' : 'custom-controls'
-            }`}
+            key={`${currentTrack?.videoId || 'empty'}-${pipMode}`}
             videoId={currentTrack?.videoId || ''}
             opts={{
               width: '100%',
               height: '100%',
               playerVars: {
                 autoplay: 1,
+                /*
+                 * In modalità normale teniamo i controlli nascosti perché usi
+                 * la UI custom di Alify.
+                 *
+                 * In modalità PiP/iOS li abilitiamo, perché iOS/YouTube può
+                 * esporre solo i propri controlli video.
+                 */
                 controls: nativeControlsEnabled ? 1 : 0,
                 modestbranding: 1,
                 rel: 0,
                 showinfo: 0,
+                /*
+                 * In modalità PiP lasciamo la tastiera/controlli player attivi.
+                 */
                 disablekb: nativeControlsEnabled ? 0 : 1,
-                playsinline: 1,
+                /*
+                 * Punto chiave per iPhone:
+                 *
+                 * - modalità normale: playsinline = 1
+                 *   Il video resta dentro la UI della web app.
+                 *
+                 * - modalità iOS: playsinline = 0
+                 *   Permettiamo a Safari/iOS di trattare il video più come
+                 *   riproduzione video nativa/fullscreen.
+                 */
+                playsinline: isIOSPiPMode ? 0 : 1,
+                /*
+                 * Abilitiamo fullscreen in modalità iOS, perché su iPhone il
+                 * percorso più realistico è: video fullscreen -> PiP/uscita app.
+                 */
+                fs: isIOSPiPMode ? 1 : 0,
                 enablejsapi: 1,
                 origin:
                   typeof window !== 'undefined' ? window.location.origin : '',
@@ -842,14 +929,25 @@ export function Player() {
               </span>
 
               <div className="flex items-center gap-1 -mr-2">
-                <button
-                  onClick={() => void enablePictureInPictureMode()}
-                  className="p-2 text-white hover:bg-white/10 rounded-full transition-colors drop-shadow-lg"
-                  type="button"
-                  title="Attiva Picture-in-Picture"
-                >
-                  <PictureInPicture2 className="w-5 h-5" />
-                </button>
+                {pipMode === 'off' ? (
+                  <button
+                    onClick={() => void enablePictureInPictureMode()}
+                    className="p-2 text-white hover:bg-white/10 rounded-full transition-colors drop-shadow-lg"
+                    type="button"
+                    title="Prepara modalità video iPhone/PiP"
+                  >
+                    <PictureInPicture2 className="w-5 h-5" />
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => void disablePictureInPictureMode()}
+                    className="p-2 text-sky-400 hover:bg-white/10 rounded-full transition-colors drop-shadow-lg"
+                    type="button"
+                    title="Esci dalla modalità PiP"
+                  >
+                    <PictureInPicture2 className="w-5 h-5" />
+                  </button>
+                )}
                 <button
                   onClick={() => setVideoExpanded(!videoExpanded)}
                   className="p-2 text-white hover:bg-white/10 rounded-full transition-colors drop-shadow-lg"
@@ -1268,6 +1366,26 @@ export function Player() {
           </div>
 
           <div className="hidden md:flex items-center justify-end gap-2 md:w-[30%]">
+            <button
+              onClick={() =>
+                pipMode === 'off'
+                  ? void enablePictureInPictureMode()
+                  : void disablePictureInPictureMode()
+              }
+              className={`p-2 rounded-full transition-colors ${
+                pipMode !== 'off'
+                  ? 'text-sky-400 hover:bg-white/10'
+                  : 'text-blue-200/60 hover:text-white hover:bg-white/10'
+              }`}
+              type="button"
+              title={
+                pipMode === 'off'
+                  ? 'Prepara modalità video iPhone/PiP'
+                  : 'Esci dalla modalità PiP'
+              }
+            >
+              <PictureInPicture2 className="w-5 h-5" />
+            </button>
             <button
               className="p-2 text-blue-200/60 hover:text-white transition-colors"
               onClick={() => setVideoExpanded(!videoExpanded)}
