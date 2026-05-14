@@ -6,6 +6,7 @@ import {
   FastForward,
   Maximize2,
   Minimize2,
+  PictureInPicture2,
   Pause,
   Play,
   Repeat,
@@ -848,6 +849,32 @@ export function Player() {
     };
   }, [ensureKeepAliveAudio, setMediaState, startYoutubePlayback]);
 
+  const togglePiP = useCallback(async () => {
+    const video = pipVideoRef.current;
+    if (!video) return;
+    try {
+      if (document.pictureInPictureElement) {
+        if (document.exitPictureInPicture) {
+          await document.exitPictureInPicture();
+        }
+      } else if ((video as any).webkitPresentationMode === 'picture-in-picture') {
+        (video as any).webkitSetPresentationMode('inline');
+      } else {
+        if (video.requestPictureInPicture) {
+          await video.requestPictureInPicture();
+        } else if ((video as any).webkitSupportsPresentationMode && (video as any).webkitSupportsPresentationMode('picture-in-picture')) {
+          (video as any).webkitSetPresentationMode('picture-in-picture');
+        }
+      }
+    } catch (e) {
+      console.warn('PiP failed', e);
+      if (video.paused) {
+         await video.play().catch(()=>{});
+         togglePiP(); 
+      }
+    }
+  }, []);
+
   useEffect(() => {
     if (!isPlaying || !isReady || !currentTrack || isSeeking) return;
 
@@ -915,6 +942,8 @@ export function Player() {
         loop
         preload="auto"
         playsInline
+        autoPictureInPicture
+        crossOrigin="anonymous"
         aria-hidden="true"
         style={{
           position: 'fixed',
@@ -1051,17 +1080,27 @@ export function Player() {
                 In riproduzione
               </span>
 
-              <button
-                onClick={() => setVideoExpanded(!videoExpanded)}
-                className="p-2 -mr-2 text-white hover:bg-white/10 rounded-full transition-colors drop-shadow-lg"
-                type="button"
-              >
-                {videoExpanded ? (
-                  <Minimize2 className="w-5 h-5" />
-                ) : (
-                  <Maximize2 className="w-5 h-5" />
-                )}
-              </button>
+              <div className="flex items-center gap-1 -mr-2">
+                <button
+                  onClick={togglePiP}
+                  className="p-2 text-white hover:bg-white/10 rounded-full transition-colors drop-shadow-lg"
+                  title="Picture in Picture"
+                  type="button"
+                >
+                  <PictureInPicture2 className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={() => setVideoExpanded(!videoExpanded)}
+                  className="p-2 text-white hover:bg-white/10 rounded-full transition-colors drop-shadow-lg"
+                  type="button"
+                >
+                  {videoExpanded ? (
+                    <Minimize2 className="w-5 h-5" />
+                  ) : (
+                    <Maximize2 className="w-5 h-5" />
+                  )}
+                </button>
+              </div>
             </div>
 
             <div className="absolute inset-x-0 top-20 bottom-[30vh] z-[101] flex">
@@ -1468,6 +1507,14 @@ export function Player() {
           </div>
 
           <div className="hidden md:flex items-center justify-end gap-2 md:w-[30%]">
+            <button
+              className="p-2 text-blue-200/60 hover:text-white transition-colors"
+              onClick={togglePiP}
+              title="Picture in Picture"
+              type="button"
+            >
+              <PictureInPicture2 className="w-5 h-5" />
+            </button>
             <button
               className="p-2 text-blue-200/60 hover:text-white transition-colors"
               onClick={() => setVideoExpanded(!videoExpanded)}
