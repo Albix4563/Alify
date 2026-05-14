@@ -102,8 +102,7 @@ export function Player() {
       setIsStreamReady(false);
       if (audio) {
         audio.pause();
-        audio.removeAttribute('src');
-        audio.load();
+        audio.src = '';
       }
       return;
     }
@@ -119,8 +118,7 @@ export function Player() {
 
     if (audio) {
       audio.pause();
-      audio.removeAttribute('src');
-      audio.load();
+      audio.src = '';
     }
 
     const controller = new AbortController();
@@ -190,7 +188,7 @@ export function Player() {
       await callVideo('seekTo', [audioTime, true]);
     }
 
-    if (audio.paused || audio.ended) {
+    if (audio.paused || audio.ended || audio.readyState < 3) {
       await callVideo('pauseVideo');
       return;
     }
@@ -273,12 +271,20 @@ export function Player() {
       setIsPlaying(false);
       void callVideo('pauseVideo');
     };
+    const onPlaying = () => {
+      void syncVideoToAudio(true);
+    };
+    const onWaiting = () => {
+      void callVideo('pauseVideo');
+    };
 
     audio.addEventListener('timeupdate', onTimeUpdate);
     audio.addEventListener('loadedmetadata', onLoadedMeta);
     audio.addEventListener('ended', onEnded);
     audio.addEventListener('play', onPlay);
     audio.addEventListener('pause', onPause);
+    audio.addEventListener('playing', onPlaying);
+    audio.addEventListener('waiting', onWaiting);
 
     return () => {
       audio.removeEventListener('timeupdate', onTimeUpdate);
@@ -286,6 +292,8 @@ export function Player() {
       audio.removeEventListener('ended', onEnded);
       audio.removeEventListener('play', onPlay);
       audio.removeEventListener('pause', onPause);
+      audio.removeEventListener('playing', onPlaying);
+      audio.removeEventListener('waiting', onWaiting);
     };
   }, [callVideo, isSeeking, handleNext, setIsPlaying, syncVideoToAudio]);
 
