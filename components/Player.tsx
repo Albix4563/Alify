@@ -852,6 +852,18 @@ export function Player() {
   const togglePiP = useCallback(async () => {
     const video = pipVideoRef.current;
     if (!video) return;
+    
+    console.log('[PiP] togglePiP called. readyState:', video.readyState, 'paused:', video.paused);
+    
+    if (video.paused) {
+      try {
+        await video.play();
+        console.log('[PiP] video played successfully');
+      } catch (err) {
+        console.warn('[PiP] play failed before pip', err);
+      }
+    }
+
     try {
       if (document.pictureInPictureElement) {
         if (document.exitPictureInPicture) {
@@ -864,14 +876,13 @@ export function Player() {
           await video.requestPictureInPicture();
         } else if ((video as any).webkitSupportsPresentationMode && (video as any).webkitSupportsPresentationMode('picture-in-picture')) {
           (video as any).webkitSetPresentationMode('picture-in-picture');
+        } else {
+          alert('PiP non supportato su questo dispositivo/browser');
         }
       }
-    } catch (e) {
-      console.warn('PiP failed', e);
-      if (video.paused) {
-         await video.play().catch(()=>{});
-         togglePiP(); 
-      }
+    } catch (e: any) {
+      console.warn('[PiP] failed to enter PiP:', e);
+      alert('Errore PiP: ' + e.message);
     }
   }, []);
 
@@ -947,12 +958,13 @@ export function Player() {
         aria-hidden="true"
         style={{
           position: 'fixed',
-          left: -9999,
-          top: -9999,
-          width: 1,
-          height: 1,
-          opacity: 0,
+          bottom: 0,
+          right: 0,
+          width: 10,
+          height: 10,
+          opacity: 0.01,
           pointerEvents: 'none',
+          zIndex: -1,
         }}
       />
 
