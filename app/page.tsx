@@ -5,9 +5,11 @@ import { usePlayerStore } from '@/lib/store';
 import { Sidebar } from '@/components/Sidebar';
 import { Player } from '@/components/Player';
 import { AuthForm } from '@/components/AuthForm';
-import { useEffect, useState, Component } from 'react';
+import { useEffect, useState, Component, useCallback } from 'react';
 import { MainContent } from '@/components/MainContent';
 import { BottomNav } from '@/components/BottomNav';
+
+const VALID_VIEWS = new Set(['home', 'search', 'library', 'playlist', 'profile', 'changelog', 'import']);
 
 // Simple error boundary to prevent Player crashes from taking down the whole page
 class PlayerErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean }> {
@@ -33,16 +35,18 @@ class PlayerErrorBoundary extends Component<{ children: React.ReactNode }, { has
 export default function Home() {
   const { user, loading } = useAuth();
   const currentTrackId = usePlayerStore((s) => s.currentTrack?.videoId || 'none');
-  const validViews = new Set(['home', 'search', 'library', 'playlist', 'profile', 'changelog', 'import']);
   
   const [currentView, setCurrentView] = useState('home');
   const [currentPlaylist, setCurrentPlaylist] = useState<any | null>(null);
   const [createPlaylistDialog, setCreatePlaylistDialog] = useState(false);
   const [isSidebarVisible, setIsSidebarVisible] = useState(true);
 
-  const setSafeCurrentView = (nextView: string) => {
-    setCurrentView(validViews.has(nextView) ? nextView : 'home');
-  };
+  const setSafeCurrentView = useCallback((nextView: string) => {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('albify:collapse-player'));
+    }
+    setCurrentView(VALID_VIEWS.has(nextView) ? nextView : 'home');
+  }, []);
 
   useEffect(() => {
     requestAnimationFrame(() => {

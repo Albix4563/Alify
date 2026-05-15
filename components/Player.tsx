@@ -52,12 +52,27 @@ export function Player() {
       setTimeout(() => setMiniSwipeFeedback(null), 450);
   };
 
+  const expandMobilePlayer = useCallback(() => {
+    if (!isMobile || !currentTrack) return;
+    setIsMobileExpanded(true);
+  }, [currentTrack, isMobile]);
+
   useEffect(() => {
       const handleResize = () => setIsMobile(window.innerWidth < 768);
       handleResize();
       window.addEventListener('resize', handleResize);
       return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  useEffect(() => {
+    const handleCollapsePlayer = () => {
+      setIsMobileExpanded(false);
+      setVideoExpanded(false);
+    };
+
+    window.addEventListener('albify:collapse-player', handleCollapsePlayer);
+    return () => window.removeEventListener('albify:collapse-player', handleCollapsePlayer);
+  }, [setVideoExpanded]);
 
   useEffect(() => {
     const mainArea = document.getElementById('main-scroll-area');
@@ -1079,11 +1094,6 @@ export function Player() {
          }}
          transition={{ type: "spring", stiffness: 400, damping: 25, mass: 1 }}
          className={`fixed z-50 left-3 right-3 bottom-[96px] md:bottom-6 md:left-1/2 md:right-auto md:-translate-x-1/2 md:w-[760px] bg-black/60 backdrop-blur-3xl border border-white/20 rounded-[28px] shadow-[0_8px_30px_rgb(0,0,0,0.6)] flex flex-col transition-opacity duration-300 ${isMobileExpanded ? 'opacity-0 pointer-events-none' : 'opacity-100 pointer-events-auto'}`}
-         onClick={(e) => {
-             if (window.innerWidth < 768 && (e.target as HTMLElement).closest('.player-footer-clickable')) {
-                 setIsMobileExpanded(true);
-             }
-         }}
       >
         <AnimatePresence>
           {miniSwipeFeedback && (
@@ -1111,7 +1121,7 @@ export function Player() {
           )}
         </AnimatePresence>
 
-        <footer className="player-footer-clickable h-[64px] md:h-[72px] px-2 flex py-1 flex-shrink-0 items-center justify-between w-full cursor-pointer md:cursor-default overflow-hidden hover:bg-white/5 transition-colors rounded-[24px]">
+        <footer className="player-footer-clickable h-[64px] md:h-[72px] px-2 flex py-1 flex-shrink-0 items-center justify-between w-full cursor-default overflow-hidden hover:bg-white/5 transition-colors rounded-[24px]">
           <AnimatePresence mode="popLayout" initial={false}>
             <motion.div 
               key={currentTrack.videoId}
@@ -1119,7 +1129,18 @@ export function Player() {
               animate={{ opacity: 1, x: 0, filter: "blur(0px)" }}
               exit={{ opacity: 0, x: -20, filter: "blur(8px)" }}
               transition={{ duration: 0.6, type: "spring", stiffness: 80, damping: 20 }}
-              className="flex items-center flex-1 md:w-[30%] md:flex-none md:min-w-[180px] overflow-hidden drop-shadow-md"
+              className={`flex items-center flex-1 md:w-[30%] md:flex-none md:min-w-[180px] overflow-hidden drop-shadow-md ${isMobile ? 'cursor-pointer' : ''}`}
+              onClick={expandMobilePlayer}
+              onKeyDown={(e) => {
+                if (!isMobile) return;
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  expandMobilePlayer();
+                }
+              }}
+              role={isMobile ? 'button' : undefined}
+              tabIndex={isMobile ? 0 : undefined}
+              aria-label={isMobile ? 'Apri player completo' : undefined}
             >
               <div className="w-11 h-11 md:w-14 md:h-14 bg-black/40 rounded-[12px] md:rounded-[16px] overflow-hidden flex-shrink-0 mr-3 border border-white/10 shadow-lg relative ml-1">
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent z-10 pointer-events-none" />
@@ -1129,6 +1150,7 @@ export function Player() {
                 <h4 className="text-[13px] md:text-[14px] font-bold truncate text-white leading-tight mb-1">{currentTrack.title}</h4>
                 <p className="text-[11px] md:text-[12px] font-medium text-blue-300/70 truncate leading-tight">{currentTrack.channelTitle}</p>
               </div>
+              <Maximize2 className="w-4 h-4 text-white/35 ml-2 flex-shrink-0 md:hidden" />
             </motion.div>
           </AnimatePresence>
 
