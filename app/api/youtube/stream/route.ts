@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { Innertube } from 'youtubei.js';
+import { Innertube, ClientType } from 'youtubei.js';
 import {
   applyRateLimit,
   logApiError,
@@ -24,13 +24,26 @@ type InvidiousVideo = {
   lengthSeconds?: number | string;
 };
 
-let youtube: Innertube | null = null;
+const YOUTUBEI_CLIENTS = [
+  { provider: 'youtubei-android', clientType: ClientType.ANDROID },
+  { provider: 'youtubei-ios', clientType: ClientType.IOS },
+] as const;
 
-async function getYouTube() {
-  if (!youtube) {
-    youtube = await Innertube.create({ gl: 'IT', hl: 'it' });
+const youtubeClients = new Map<ClientType, Promise<Innertube>>();
+
+async function getYouTube(clientType: ClientType = ClientType.ANDROID) {
+  let client = youtubeClients.get(clientType);
+  if (!client) {
+    client = Innertube.create({
+      lang: 'it',
+      location: 'IT',
+      client_type: clientType,
+      retrieve_player: true,
+      enable_session_cache: false,
+    });
+    youtubeClients.set(clientType, client);
   }
-  return youtube;
+  return client;
 }
 
 function isValidVideoId(videoId: string): boolean {
@@ -181,24 +194,27 @@ export async function GET(request: Request) {
       } catch { /* next instance */ }
     }
 
-    // youtubei candidates
-    try {
-      const yt = await getYouTube();
-      for (const opts of [
-        { type: 'audio' as const, quality: 'best', format: 'mp4' },
-        { type: 'audio' as const, quality: 'best' },
-      ]) {
-        const fmt = await withTimeout(yt.getStreamingData(videoId, opts), 7000);
-        if (fmt?.url && !candidates.some(c => c.url === fmt.url)) {
-          candidates.push({
-            url: fmt.url,
-            provider: 'youtubei',
-            mimeType: fmt.mime_type || 'audio/mp4',
-            bitrate: fmt.bitrate || 0,
-          });
+    // youtubei candidates. Android/iOS clients still return playable direct audio URLs;
+    // WEB currently returns formats without usable URLs ("No valid URL to decipher").
+    for (const { provider, clientType } of YOUTUBEI_CLIENTS) {
+      try {
+        const yt = await getYouTube(clientType);
+        for (const opts of [
+          { type: 'audio' as const, quality: 'best', format: 'mp4' },
+          { type: 'audio' as const, quality: 'best' },
+        ]) {
+          const fmt = await withTimeout(yt.getStreamingData(videoId, opts), 8000);
+          if (fmt?.url && !candidates.some(c => c.url === fmt.url)) {
+            candidates.push({
+              url: fmt.url,
+              provider,
+              mimeType: fmt.mime_type || 'audio/mp4',
+              bitrate: fmt.bitrate || 0,
+            });
+          }
         }
-      }
-    } catch { /* youtubei failed */ }
+      } catch { /* try next youtubei client */ }
+    }
   } catch (error) {
     logApiError('YouTube stream route error', error);
   }
