@@ -37,6 +37,10 @@ export function BottomNav({ currentView, setCurrentView }: any) {
     return () => mainArea.removeEventListener('scroll', handleScroll);
   }, [lastY]);
 
+  useEffect(() => {
+    setHidden(false);
+  }, [currentView]);
+
   const navItems = [
     { id: 'home', icon: Home, label: 'Home' },
     { id: 'search', icon: Search, label: 'Cerca' },

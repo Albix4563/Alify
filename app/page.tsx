@@ -33,11 +33,16 @@ class PlayerErrorBoundary extends Component<{ children: React.ReactNode }, { has
 export default function Home() {
   const { user, loading } = useAuth();
   const currentTrackId = usePlayerStore((s) => s.currentTrack?.videoId || 'none');
+  const validViews = new Set(['home', 'search', 'library', 'playlist', 'profile', 'changelog', 'import']);
   
   const [currentView, setCurrentView] = useState('home');
-  const [currentPlaylist, setCurrentPlaylist] = useState(null);
+  const [currentPlaylist, setCurrentPlaylist] = useState<any | null>(null);
   const [createPlaylistDialog, setCreatePlaylistDialog] = useState(false);
   const [isSidebarVisible, setIsSidebarVisible] = useState(true);
+
+  const setSafeCurrentView = (nextView: string) => {
+    setCurrentView(validViews.has(nextView) ? nextView : 'home');
+  };
 
   useEffect(() => {
     requestAnimationFrame(() => {
@@ -58,7 +63,7 @@ export default function Home() {
       <div className="flex flex-1 overflow-hidden w-full relative">
         <Sidebar 
           currentView={currentView} 
-          setCurrentView={setCurrentView}
+          setCurrentView={setSafeCurrentView}
           currentPlaylist={currentPlaylist}
           setCurrentPlaylist={setCurrentPlaylist}
           setCreatePlaylistDialog={setCreatePlaylistDialog}
@@ -70,7 +75,7 @@ export default function Home() {
           <MainContent 
              currentView={currentView} 
              currentPlaylist={currentPlaylist}
-             setCurrentView={setCurrentView}
+             setCurrentView={setSafeCurrentView}
              createPlaylistDialog={createPlaylistDialog}
              setCreatePlaylistDialog={setCreatePlaylistDialog}
              setCurrentPlaylist={setCurrentPlaylist}
@@ -79,7 +84,7 @@ export default function Home() {
           />
         </main>
       </div>
-      <BottomNav currentView={currentView} setCurrentView={setCurrentView} />
+      <BottomNav currentView={currentView} setCurrentView={setSafeCurrentView} />
       <PlayerErrorBoundary key={currentTrackId}>
         <Player />
       </PlayerErrorBoundary>

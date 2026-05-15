@@ -64,6 +64,17 @@ export function MainContent({
   setCreatePlaylistDialog,
   setCurrentPlaylist,
 }: any) {
+  const validViews = new Set([
+    "home",
+    "search",
+    "library",
+    "playlist",
+    "profile",
+    "changelog",
+    "import",
+  ]);
+  const isValidView = validViews.has(currentView);
+
   const { user } = useAuth();
   const { setCurrentTrack, setQueue, setAudioQuality } = usePlayerStore();
 
@@ -300,6 +311,20 @@ export function MainContent({
     setPlaylistFilter("");
     setPlaylistSortMode("recent");
   }, [currentPlaylist?.id]);
+
+  useEffect(() => {
+    if (!isValidView) {
+      setCurrentView("home");
+    }
+  }, [isValidView, setCurrentView]);
+
+  if (!isValidView) {
+    return (
+      <div className="p-4 md:p-6 pb-32">
+        <div className="text-sm text-blue-200/70">Reindirizzamento alla Home...</div>
+      </div>
+    );
+  }
 
   const clearSearchState = () => {
     setSearchQuery("");
