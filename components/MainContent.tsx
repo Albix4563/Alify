@@ -64,6 +64,8 @@ export function MainContent({
   setCreatePlaylistDialog,
   setCurrentPlaylist,
 }: any) {
+  const resolvedView =
+    currentView === "playlist" && !currentPlaylist ? "library" : currentView;
   const validViews = new Set([
     "home",
     "search",
@@ -73,7 +75,7 @@ export function MainContent({
     "changelog",
     "import",
   ]);
-  const isValidView = validViews.has(currentView);
+  const isValidView = validViews.has(resolvedView);
 
   const { user } = useAuth();
   const { setCurrentTrack, setQueue, setAudioQuality } = usePlayerStore();
@@ -142,7 +144,7 @@ export function MainContent({
 
       if (
         event.key === "Escape" &&
-        currentView === "search" &&
+        resolvedView === "search" &&
         searchInputRef.current === document.activeElement &&
         searchQuery
       ) {
@@ -155,7 +157,7 @@ export function MainContent({
     return () => {
       window.removeEventListener("keydown", handleGlobalSearchShortcuts);
     };
-  }, [currentView, searchQuery, setCurrentView]);
+  }, [resolvedView, searchQuery, setCurrentView]);
 
   const [favorites, setFavorites] = useState<any[]>([]);
   const [playlistTracks, setPlaylistTracks] = useState<any[]>([]);
@@ -258,7 +260,7 @@ export function MainContent({
           (a, b) =>
             (b.playedAt?.toMillis() || 0) - (a.playedAt?.toMillis() || 0),
         );
-        setHistory(hist.map((h) => h.track));
+        setHistory(hist.map((h) => h?.track).filter(Boolean));
       },
       (err) =>
         handleFirestoreError(
@@ -288,7 +290,7 @@ export function MainContent({
   }, [user, setAudioQuality]);
 
   useEffect(() => {
-    if (!user || currentView !== "playlist" || !currentPlaylist) return;
+    if (!user || resolvedView !== "playlist" || !currentPlaylist) return;
     const q = query(collection(db, "playlists", currentPlaylist.id, "tracks"));
     const unsub = onSnapshot(
       q,
@@ -305,7 +307,7 @@ export function MainContent({
         ),
     );
     return () => unsub();
-  }, [user, currentView, currentPlaylist]);
+  }, [user, resolvedView, currentPlaylist]);
 
   useEffect(() => {
     setPlaylistFilter("");
@@ -789,6 +791,7 @@ export function MainContent({
       return (
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 mt-4">
           {tracks.map((t, idx) => {
+            if (!t || typeof t !== "object") return null;
             const trk = {
               videoId: t.videoId || t.id?.videoId,
               title: t.title || t.snippet?.title || "",
@@ -922,6 +925,7 @@ export function MainContent({
     return (
       <div className={`space-y-1 mt-4`}>
         {tracks.map((t, idx) => {
+          if (!t || typeof t !== "object") return null;
           const trk = {
             videoId: t.videoId || t.id?.videoId,
             title: t.title || t.snippet?.title || "",
@@ -1157,20 +1161,12 @@ export function MainContent({
         </DialogContent>
       </Dialog>
 
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={currentView}
-          initial={{ opacity: 0, y: 15, filter: "blur(12px)", scale: 0.98 }}
-          animate={{ opacity: 1, y: 0, filter: "blur(0px)", scale: 1 }}
-          exit={{ opacity: 0, y: -15, filter: "blur(12px)", scale: 0.98 }}
-          transition={{ duration: 0.7, type: "spring", stiffness: 80, damping: 20, mass: 1 }}
-          className="w-full relative z-0"
-        >
-          {currentView === "profile" && <ProfileView setCurrentView={setCurrentView} />}
-          {currentView === "changelog" && <ChangelogView />}
-          <ImportView currentView={currentView} userPlaylists={userPlaylists} setCurrentView={setCurrentView} />
+      <div className="w-full relative z-0">
+          {resolvedView === "profile" && <ProfileView setCurrentView={setCurrentView} />}
+          {resolvedView === "changelog" && <ChangelogView />}
+          <ImportView currentView={resolvedView} userPlaylists={userPlaylists} setCurrentView={setCurrentView} />
 
-          {currentView === "home" && (
+          {resolvedView === "home" && (
             <>
               <section className="mb-4 relative z-0 flex flex-col pt-0">
                 <div className="flex items-center gap-4 mb-4">
@@ -1239,7 +1235,7 @@ export function MainContent({
             </>
           )}
 
-          {currentView === "search" && (
+          {resolvedView === "search" && (
             <section className="relative z-0 min-h-[70vh] flex flex-col pt-2 px-4 md:px-8 max-w-7xl mx-auto w-full">
               <motion.div
                 layout
@@ -1432,7 +1428,7 @@ export function MainContent({
             </section>
           )}
 
-          {currentView === "library" && (
+          {resolvedView === "library" && (
             <section className="relative z-0">
               <div className="flex items-end gap-6 mb-6 mt-0">
                 <div className="w-32 h-32 md:w-48 md:h-48 bg-gradient-to-br from-blue-500 to-sky-400 shadow-[0_0_40px_rgba(52,211,153,0.3)] border border-white/20 flex items-center justify-center rounded-2xl relative overflow-hidden backdrop-blur-md">
@@ -1556,7 +1552,7 @@ export function MainContent({
             </section>
           )}
 
-          {currentView === "playlist" && currentPlaylist && (
+          {resolvedView === "playlist" && currentPlaylist && (
             <section className="relative z-0">
               <div className="flex items-end gap-6 mb-6 mt-0">
                 <div className="w-48 h-48 bg-white/5 backdrop-blur-xl shadow-2xl flex items-center justify-center rounded-2xl border border-white/20 relative overflow-hidden">
@@ -1697,8 +1693,7 @@ export function MainContent({
               )}
             </section>
           )}
-      </motion.div>
-      </AnimatePresence>
+      </div>
     </div>
   );
 }

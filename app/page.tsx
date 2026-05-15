@@ -32,6 +32,43 @@ class PlayerErrorBoundary extends Component<{ children: React.ReactNode }, { has
   }
 }
 
+class MainContentErrorBoundary extends Component<
+  { children: React.ReactNode; onReset: () => void },
+  { hasError: boolean }
+> {
+  constructor(props: { children: React.ReactNode; onReset: () => void }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error: Error) {
+    console.error('MainContent error boundary caught:', error);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-6 md:p-8">
+          <div className="max-w-xl rounded-[28px] border border-red-500/20 bg-[#121215]/85 p-6 text-white shadow-2xl backdrop-blur-2xl">
+            <h2 className="text-lg font-bold">La schermata non si e caricata correttamente.</h2>
+            <p className="mt-2 text-sm text-blue-100/70">
+              Ho bloccato il crash del contenuto per evitare una schermata vuota.
+            </p>
+            <button
+              onClick={this.props.onReset}
+              className="mt-4 rounded-full bg-white/10 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-white/20"
+            >
+              Torna alla Home
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function Home() {
   const { user, loading } = useAuth();
   const currentTrackId = usePlayerStore((s) => s.currentTrack?.videoId || 'none');
@@ -76,16 +113,21 @@ export default function Home() {
         />
         
         <main id="main-scroll-area" className="flex-1 w-full bg-transparent overflow-y-auto overflow-x-hidden relative z-0 overscroll-y-contain">
-          <MainContent 
-             currentView={currentView} 
-             currentPlaylist={currentPlaylist}
-             setCurrentView={setSafeCurrentView}
-             createPlaylistDialog={createPlaylistDialog}
-             setCreatePlaylistDialog={setCreatePlaylistDialog}
-             setCurrentPlaylist={setCurrentPlaylist}
-             isSidebarVisible={isSidebarVisible}
-             setIsSidebarVisible={setIsSidebarVisible}
-          />
+          <MainContentErrorBoundary
+            key={`${currentView}:${currentPlaylist?.id ?? 'none'}:${currentTrackId}`}
+            onReset={() => setSafeCurrentView('home')}
+          >
+            <MainContent 
+               currentView={currentView} 
+               currentPlaylist={currentPlaylist}
+               setCurrentView={setSafeCurrentView}
+               createPlaylistDialog={createPlaylistDialog}
+               setCreatePlaylistDialog={setCreatePlaylistDialog}
+               setCurrentPlaylist={setCurrentPlaylist}
+               isSidebarVisible={isSidebarVisible}
+               setIsSidebarVisible={setIsSidebarVisible}
+            />
+          </MainContentErrorBoundary>
         </main>
       </div>
       <BottomNav currentView={currentView} setCurrentView={setSafeCurrentView} />
