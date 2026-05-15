@@ -37,3 +37,13 @@ firebase-blueprint.json
 
 # vercel
 .vercel
+
+# hermes agent
+.hermes/
+
+# player backups
+components/Player.tsx.backup
+components/Player.tsx.video-backup
+
+# streamer service (deployed separately)
+albify-streamer/
