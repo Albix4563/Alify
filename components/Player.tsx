@@ -337,16 +337,38 @@ export function Player() {
       switch (method) {
         case 'playVideo':
           desiredPlayingRef.current = true;
-          if (!audio || !audio.src) return false;
+          if (!audio || !audio.src) {
+            // No audio source — fall back to iframe
+            const vid = currentTrackIdRef.current;
+            if (vid && !useIframeFallback) {
+              console.warn('No audio source available, falling back to iframe');
+              setUseIframeFallback(true);
+              setIsStreamReady(true);
+              setStreamVideoId(vid);
+            }
+            return false;
+          }
           if (audioCtxRef.current?.state === 'suspended') {
             await audioCtxRef.current.resume().catch(() => {});
           }
-          await audio.play();
-          isSwitchingTrackRef.current = false;
-          clearRetryPlayTimeout();
-          setIsPlaying(true);
-          void syncVideoToAudio(true);
-          return true;
+          try {
+            await audio.play();
+            isSwitchingTrackRef.current = false;
+            clearRetryPlayTimeout();
+            setIsPlaying(true);
+            void syncVideoToAudio(true);
+            return true;
+          } catch (playErr) {
+            // audio.play() rejected (autoplay policy, CORS, etc.) — fall back to iframe
+            const vid = currentTrackIdRef.current;
+            console.warn('audio.play() rejected, falling back to iframe:', playErr);
+            if (vid && !useIframeFallback) {
+              setUseIframeFallback(true);
+              setIsStreamReady(true);
+              setStreamVideoId(vid);
+            }
+            return false;
+          }
         case 'pauseVideo':
           desiredPlayingRef.current = false;
           isSwitchingTrackRef.current = false;
@@ -465,6 +487,32 @@ export function Player() {
       }
       void syncVideoToAudio(true);
     };
+    const onError = () => {
+      // Native audio failed to load — fall back to iframe immediately
+      const vid = currentTrackIdRef.current;
+      if (isSwitchingTrackRef.current && desiredPlayingRef.current && vid) {
+        console.warn(`Audio element error for ${vid}, falling back to iframe`);
+        setUseIframeFallback(true);
+        setIsStreamReady(true);
+        setStreamVideoId(vid);
+      }
+    };
+    const onStalled = () => {
+      // Audio stalled — try to recover by falling to iframe if it persists
+      if (desiredPlayingRef.current && isSwitchingTrackRef.current) {
+        const vid = currentTrackIdRef.current;
+        if (vid) {
+          window.setTimeout(() => {
+            if (desiredPlayingRef.current && audioRef.current?.paused && audioRef.current?.readyState < 3) {
+              console.warn(`Audio stalled for ${vid}, falling back to iframe`);
+              setUseIframeFallback(true);
+              setIsStreamReady(true);
+              setStreamVideoId(vid);
+            }
+          }, 2000);
+        }
+      }
+    };
 
     audio.addEventListener('timeupdate', onTimeUpdate);
     audio.addEventListener('loadedmetadata', onLoadedMeta);
@@ -474,6 +522,8 @@ export function Player() {
     audio.addEventListener('playing', onPlaying);
     audio.addEventListener('waiting', onWaiting);
     audio.addEventListener('canplay', onCanPlay);
+    audio.addEventListener('error', onError);
+    audio.addEventListener('stalled', onStalled);
 
     return () => {
       audio.removeEventListener('timeupdate', onTimeUpdate);
@@ -484,10 +534,13 @@ export function Player() {
       audio.removeEventListener('playing', onPlaying);
       audio.removeEventListener('waiting', onWaiting);
       audio.removeEventListener('canplay', onCanPlay);
+      audio.removeEventListener('error', onError);
+      audio.removeEventListener('stalled', onStalled);
     };
   }, [
     callVideo,
     clearRetryPlayTimeout,
+    currentTrack,
     handleNext,
     isSeeking,
     safePlayerCall,
