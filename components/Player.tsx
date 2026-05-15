@@ -30,6 +30,9 @@ export function Player() {
   const [scrollingDown, setScrollingDown] = useState(false);
   const [lastY, setLastY] = useState(0);
   const [isMobile, setIsMobile] = useState(false);
+  const isMobileRef = useRef(false);
+  // Keep ref in sync
+  useEffect(() => { isMobileRef.current = isMobile; }, [isMobile]);
   const [seekAnimation, setSeekAnimation] = useState<'forward' | 'backward' | null>(null);
   const [miniSwipeFeedback, setMiniSwipeFeedback] = useState<'next' | 'rewind' | null>(null);
   const [streamRetries, setStreamRetries] = useState(0);
@@ -145,7 +148,22 @@ export function Player() {
         return;
       }
 
-      // All retries exhausted — fall back to iframe
+      // All retries exhausted — fall back to iframe (desktop only; mobile blocks iframe autoplay)
+      if (isMobileRef.current) {
+        // On mobile, keep retrying stream with longer delays instead of iframe
+        if (attempt < 6) {
+          const delay = RETRY_BASE_DELAY * Math.pow(1.5, attempt);
+          retryTimeoutRef.current = window.setTimeout(() => {
+            retryTimeoutRef.current = null;
+            if (streamRequestRef.current === requestId) {
+              tryFetchStream(videoId, requestId, attempt + 1);
+            }
+          }, delay);
+          setStreamRetries(attempt + 1);
+          return;
+        }
+        // After many retries on mobile, try iframe as absolute last resort
+      }
       console.warn(`All stream attempts failed for ${videoId}, falling back to iframe playback`);
       setUseIframeFallback(true);
       setIsStreamReady(true); // Ready to play via iframe
@@ -166,7 +184,18 @@ export function Player() {
         return;
       }
 
-      // All retries exhausted — fall back to iframe
+      // All retries exhausted — fall back to iframe (desktop only; mobile blocks iframe autoplay)
+      if (isMobileRef.current && attempt < 6) {
+        const delay = RETRY_BASE_DELAY * Math.pow(1.5, attempt);
+        retryTimeoutRef.current = window.setTimeout(() => {
+          retryTimeoutRef.current = null;
+          if (streamRequestRef.current === requestId) {
+            tryFetchStream(videoId, requestId, attempt + 1);
+          }
+        }, delay);
+        setStreamRetries(attempt + 1);
+        return;
+      }
       console.warn(`All stream attempts failed for ${videoId}, falling back to iframe playback`);
       setUseIframeFallback(true);
       setIsStreamReady(true);
@@ -195,8 +224,7 @@ export function Player() {
       setStreamRetries(0);
       if (audio) {
         audio.pause();
-        audio.removeAttribute('src');
-        audio.load();
+        audio.src = '';
       }
       return;
     }
@@ -227,8 +255,7 @@ export function Player() {
 
     if (audio) {
       audio.pause();
-      audio.removeAttribute('src');
-      audio.load();
+      audio.src = '';  // Simple reset — don't removeAttribute+load (can break mobile)
     }
 
     tryFetchStream(videoId, requestId, 0);
@@ -338,9 +365,9 @@ export function Player() {
         case 'playVideo':
           desiredPlayingRef.current = true;
           if (!audio || !audio.src) {
-            // No audio source — fall back to iframe
+            // No audio source — fall back to iframe (desktop only)
             const vid = currentTrackIdRef.current;
-            if (vid && !useIframeFallback) {
+            if (vid && !useIframeFallback && !isMobileRef.current) {
               console.warn('No audio source available, falling back to iframe');
               setUseIframeFallback(true);
               setIsStreamReady(true);
@@ -359,10 +386,10 @@ export function Player() {
             void syncVideoToAudio(true);
             return true;
           } catch (playErr) {
-            // audio.play() rejected (autoplay policy, CORS, etc.) — fall back to iframe
+            // audio.play() rejected (autoplay policy, CORS, etc.) — fall back to iframe (desktop only)
             const vid = currentTrackIdRef.current;
             console.warn('audio.play() rejected, falling back to iframe:', playErr);
-            if (vid && !useIframeFallback) {
+            if (vid && !useIframeFallback && !isMobileRef.current) {
               setUseIframeFallback(true);
               setIsStreamReady(true);
               setStreamVideoId(vid);
