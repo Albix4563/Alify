@@ -12,8 +12,8 @@ import { BottomNav } from '@/components/BottomNav';
 const VALID_VIEWS = new Set(['home', 'search', 'library', 'playlist', 'profile', 'changelog', 'import']);
 
 // Simple error boundary to prevent Player crashes from taking down the whole page
-class PlayerErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean }> {
-  constructor(props: { children: React.ReactNode }) {
+class PlayerErrorBoundary extends Component<{ children: React.ReactNode; resetKey: string }, { hasError: boolean }> {
+  constructor(props: { children: React.ReactNode; resetKey: string }) {
     super(props);
     this.state = { hasError: false };
   }
@@ -22,6 +22,11 @@ class PlayerErrorBoundary extends Component<{ children: React.ReactNode }, { has
   }
   componentDidCatch(error: Error) {
     console.error('Player error boundary caught:', error);
+  }
+  componentDidUpdate(prevProps: { resetKey: string }) {
+    if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
+      this.setState({ hasError: false });
+    }
   }
   render() {
     if (this.state.hasError) {
@@ -131,7 +136,7 @@ export default function Home() {
         </main>
       </div>
       <BottomNav currentView={currentView} setCurrentView={setSafeCurrentView} />
-      <PlayerErrorBoundary key={currentTrackId}>
+      <PlayerErrorBoundary resetKey={currentTrackId}>
         <Player />
       </PlayerErrorBoundary>
     </div>

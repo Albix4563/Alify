@@ -16,6 +16,8 @@ const isIOS = typeof navigator !== 'undefined' && (
   (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
 );
 
+const SILENT_AUDIO_SRC = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+
 // Debug ring buffer (inspects from Safari Web Inspector via window.__albifyPlayerDebug)
 const debugEnabled = typeof window !== 'undefined' &&
   (localStorage.getItem('albify:player-debug') === '1' ||
@@ -79,6 +81,7 @@ export function Player() {
   const playerRef = useRef<any>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const keepAliveAudioRef = useRef<HTMLAudioElement>(null);  // iOS keepalive anchor
+  const iosMediaPrimedRef = useRef(false);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const desiredPlayingRef = useRef(false);
   const currentTrackIdRef = useRef('');
@@ -194,6 +197,54 @@ export function Player() {
   const MAX_STREAM_RETRIES = 3;
   const RETRY_BASE_DELAY = 1500;
 
+  const primeIOSMediaUnlock = useCallback((reason = 'gesture') => {
+    if (!isIOS || iosMediaPrimedRef.current) return;
+
+    const audio = audioRef.current;
+    const keepAlive = keepAliveAudioRef.current;
+
+    if (audioCtxRef.current?.state === 'suspended') {
+      audioCtxRef.current.resume().catch(() => {});
+    }
+
+    if (audio && !currentTrackIdRef.current && !audio.src) {
+      try {
+        audio.muted = true;
+        audio.loop = true;
+        audio.src = SILENT_AUDIO_SRC;
+        audio.load();
+        void audio.play()
+          .then(() => {
+            iosMediaPrimedRef.current = true;
+            audio.pause();
+            audio.currentTime = 0;
+            audio.muted = false;
+            audio.loop = false;
+            if (!currentTrackIdRef.current) {
+              audio.src = '';
+            }
+            pushDebug({ event: 'ios-media-primed', reason, playbackMode: 'native', isIOSAudioPlatform: true });
+          })
+          .catch((err) => {
+            audio.muted = false;
+            audio.loop = false;
+            pushDebug({ event: 'ios-media-prime-failed', reason, playbackMode: 'native', isIOSAudioPlatform: true, errorCode: (err as any)?.code });
+          });
+      } catch (err) {
+        pushDebug({ event: 'ios-media-prime-error', reason, playbackMode: 'native', isIOSAudioPlatform: true, errorCode: (err as any)?.code });
+      }
+    }
+
+    if (keepAlive) {
+      void keepAlive.play()
+        .then(() => {
+          iosMediaPrimedRef.current = true;
+          pushDebug({ event: 'keepalive-primed', reason, playbackMode: 'native', isIOSAudioPlatform: true });
+        })
+        .catch(() => {});
+    }
+  }, []);
+
   // Store candidates for fast retry without re-fetching
   const streamCandidatesRef = useRef<string[]>([]);
   const streamCandidateIndexRef = useRef(0);
@@ -209,6 +260,8 @@ export function Player() {
         const url = candidates[nextIndex];
         if (audioRef.current && url) {
           streamCandidateIndexRef.current = nextIndex;
+          audioRef.current.muted = false;
+          audioRef.current.loop = false;
           audioRef.current.src = url;
           audioRef.current.load();
           const storeState = usePlayerStore.getState();
@@ -249,6 +302,8 @@ export function Player() {
         }
 
         if (audioRef.current) {
+          audioRef.current.muted = false;
+          audioRef.current.loop = false;
           audioRef.current.src = data.url;
           audioRef.current.load();
         }
@@ -377,6 +432,8 @@ export function Player() {
       streamCandidateIndexRef.current = 0;
       if (audio) {
         audio.pause();
+        audio.muted = false;
+        audio.loop = false;
         audio.src = '';
       }
       return;
@@ -408,6 +465,8 @@ export function Player() {
 
     if (audio) {
       audio.pause();
+      audio.muted = false;
+      audio.loop = false;
       audio.src = '';  // Simple reset — don't removeAttribute+load (can break mobile)
     }
 
@@ -930,11 +989,12 @@ export function Player() {
     if (typeof window === 'undefined') return;
     try {
       const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
-      if (!AC) return;
-      const ctx = new AC();
+      const ctx = AC ? new AC() : null;
       audioCtxRef.current = ctx;
       const unlock = () => {
-        if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+        primeIOSMediaUnlock('document-gesture');
+        if (ctx?.state === 'suspended') ctx.resume().catch(() => {});
+        if (!ctx) return;
         try {
           const buf = ctx.createBuffer(1, 1, 22050);
           const src = ctx.createBufferSource();
@@ -946,15 +1006,17 @@ export function Player() {
           src.start(0);
         } catch(e) {}
       };
-      document.addEventListener('touchstart', unlock, { once: true, passive: true });
-      document.addEventListener('click', unlock, { once: true, passive: true });
+      document.addEventListener('pointerdown', unlock, { passive: true, capture: true });
+      document.addEventListener('touchstart', unlock, { passive: true, capture: true });
+      document.addEventListener('click', unlock, { passive: true, capture: true });
       return () => {
-        document.removeEventListener('touchstart', unlock);
-        document.removeEventListener('click', unlock);
-        ctx.close().catch(() => {});
+        document.removeEventListener('pointerdown', unlock, true);
+        document.removeEventListener('touchstart', unlock, true);
+        document.removeEventListener('click', unlock, true);
+        ctx?.close().catch(() => {});
       };
     } catch(e) {}
-  }, []);
+  }, [primeIOSMediaUnlock]);
 
   const togglePlayPause = () => {
     if (isPlaying) {
@@ -1123,7 +1185,31 @@ export function Player() {
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
-  if (!currentTrack) return null;
+  const audioElements = (
+    <>
+      <audio
+        ref={audioRef}
+        preload="auto"
+        playsInline
+        webkit-playsinline="true"
+        x-webkit-airplay="allow"
+        style={{ position: 'absolute', left: '-9999px', width: '1px', height: '1px', opacity: 0 }}
+      />
+      {/* iOS keepalive anchor: silent WAV keeps media session alive during background */}
+      <audio
+        ref={keepAliveAudioRef}
+        src={SILENT_AUDIO_SRC}
+        loop
+        preload="auto"
+        playsInline
+        webkit-playsinline="true"
+        x-webkit-airplay="allow"
+        style={{ position: 'absolute', left: '-9998px', width: '1px', height: '1px', opacity: 0 }}
+      />
+    </>
+  );
+
+  if (!currentTrack) return <>{audioElements}</>;
 
   const toggleLoop = () => {
      if (loopMode === 'off') setLoopMode('all');
@@ -1194,25 +1280,7 @@ export function Player() {
 
   return (
     <>
-      <audio 
-        ref={audioRef} 
-        preload="auto"
-        playsInline 
-        webkit-playsinline="true"
-        x-webkit-airplay="allow"
-        style={{ position: 'absolute', left: '-9999px', width: '1px', height: '1px', opacity: 0 }} 
-      />
-      {/* iOS keepalive anchor: silent WAV keeps media session alive during background */}
-      <audio
-        ref={keepAliveAudioRef}
-        src="data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA"
-        loop
-        preload="auto"
-        playsInline
-        webkit-playsinline="true"
-        x-webkit-airplay="allow"
-        style={{ position: 'absolute', left: '-9998px', width: '1px', height: '1px', opacity: 0 }} 
-      />
+      {audioElements}
       <div 
          className={`
            pointer-events-none
