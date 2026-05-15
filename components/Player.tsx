@@ -36,6 +36,11 @@ type DebugEntry = {
   desiredPlaying?: boolean;
   useIframeFallback?: boolean;
   trackId?: string;
+  candidateIndex?: number;
+  candidateCount?: number;
+  errorCode?: number;
+  isIOSAudioPlatform?: boolean;
+  innerWidth?: number;
 };
 
 const pushDebug = (entry: Omit<DebugEntry, 'ts'>) => {
@@ -44,6 +49,27 @@ const pushDebug = (entry: Omit<DebugEntry, 'ts'>) => {
   ring.push({ ts: Date.now(), ...entry });
   if (ring.length > 150) ring.splice(0, ring.length - 150);
 };
+
+// Debug export: copy full debug log to clipboard (call from Safari Inspector)
+// Usage: window.__albifyExportDebug()
+if (typeof window !== 'undefined' && debugEnabled) {
+  (window as any).__albifyExportDebug = () => {
+    const ring: DebugEntry[] = (window as any).__albifyPlayerDebug || [];
+    const summary = {
+      exportTime: new Date().toISOString(),
+      isIOS,
+      isIOSAudioPlatform: isIOS,
+      userAgent: navigator.userAgent,
+      innerWidth: window.innerWidth,
+      entryCount: ring.length,
+      entries: ring,
+    };
+    const json = JSON.stringify(summary, null, 2);
+    console.log('[Albify Debug Export]', json);
+    try { navigator.clipboard.writeText(json); console.log('[Albify Debug] Copied to clipboard'); } catch { /* no clipboard */ }
+    return summary;
+  };
+}
 
 // ---- End iOS background audio helpers ----
 
@@ -173,6 +199,34 @@ export function Player() {
   const streamCandidateIndexRef = useRef(0);
 
   const tryFetchStream = useCallback(async (videoId: string, requestId: number, attempt: number = 0): Promise<void> => {
+    // On retry (attempt > 0), try stored candidates first before re-fetching from server
+    if (attempt > 0) {
+      const candidates = streamCandidatesRef.current;
+      const nextIndex = streamCandidateIndexRef.current + 1;
+
+      if (candidates.length > 0 && nextIndex < candidates.length) {
+        // Try next stored candidate — no server round-trip needed
+        const url = candidates[nextIndex];
+        if (audioRef.current && url) {
+          streamCandidateIndexRef.current = nextIndex;
+          audioRef.current.src = url;
+          audioRef.current.load();
+          const storeState = usePlayerStore.getState();
+          if (storeState.playRequestId > lastPlayRequestRef.current) {
+            desiredPlayingRef.current = true;
+          }
+          pushDebug({ event: 'candidate-rotate', reason: 'using-stored-candidate', candidateIndex: nextIndex, candidateCount: candidates.length, playbackMode: 'native', trackId: videoId, isIOSAudioPlatform: isIOS });
+          setStreamVideoId(videoId);
+          setIsStreamReady(true);
+          setUseIframeFallback(false);
+          setStreamRetries(0);
+          return;
+        }
+      }
+      // All stored candidates exhausted — fall through to server re-fetch
+      pushDebug({ event: 'candidate-exhausted', reason: 'no-more-stored-candidates', candidateIndex: streamCandidateIndexRef.current, candidateCount: candidates.length, trackId: videoId });
+    }
+
     const doFetch = async (tryIdx: number) => {
       const controller = new AbortController();
       const res = await fetch(`/api/youtube/stream?v=${videoId}&try=${tryIdx}`, { signal: controller.signal });
@@ -202,7 +256,7 @@ export function Player() {
         if (storeState.playRequestId > lastPlayRequestRef.current) {
           desiredPlayingRef.current = true;
         }
-        pushDebug({ event: 'stream-loaded', reason: 'native-stream-ready', playbackMode: 'native', provider: data.provider, trackId: videoId });
+        pushDebug({ event: 'stream-loaded', reason: 'native-stream-ready', playbackMode: 'native', provider: data.provider, trackId: videoId, candidateIndex: data.selectedIndex ?? 0, candidateCount: data.candidates?.length ?? 1, isIOSAudioPlatform: isIOS });
         setStreamVideoId(videoId);
         setIsStreamReady(true);
         setUseIframeFallback(false);
@@ -214,7 +268,7 @@ export function Player() {
       if (attempt < MAX_STREAM_RETRIES - 1) {
         const delay = RETRY_BASE_DELAY * Math.pow(2, attempt);
         console.warn(`Stream fetch attempt ${attempt + 1}/${MAX_STREAM_RETRIES} failed for ${videoId}, retrying in ${delay}ms`);
-        pushDebug({ event: 'stream-retry', reason: 'no-url', playbackMode: 'native', trackId: videoId });
+        pushDebug({ event: 'stream-retry', reason: 'no-url', playbackMode: 'native', trackId: videoId, candidateIndex: streamCandidateIndexRef.current, candidateCount: streamCandidatesRef.current.length, isIOSAudioPlatform: isIOS });
         retryTimeoutRef.current = window.setTimeout(() => {
           retryTimeoutRef.current = null;
           if (streamRequestRef.current === requestId) {
@@ -225,12 +279,11 @@ export function Player() {
         return;
       }
 
-      // All retries exhausted — fall back to iframe (desktop only; mobile blocks iframe autoplay)
-      if (isMobileRef.current) {
-        // On mobile, keep retrying stream with longer delays instead of iframe
+      // All retries exhausted — on iOS, NEVER fall back to iframe
+      if (isIOS) {
         if (attempt < 6) {
           const delay = RETRY_BASE_DELAY * Math.pow(1.5, attempt);
-          pushDebug({ event: 'stream-retry-extended', reason: 'no-url', playbackMode: 'native', trackId: videoId, desiredPlaying: desiredPlayingRef.current, visibilityState: document.visibilityState });
+          pushDebug({ event: 'stream-retry-extended', reason: 'no-url', playbackMode: 'native', trackId: videoId, desiredPlaying: desiredPlayingRef.current, visibilityState: document.visibilityState, isIOSAudioPlatform: true, candidateIndex: streamCandidateIndexRef.current, candidateCount: streamCandidatesRef.current.length });
           retryTimeoutRef.current = window.setTimeout(() => {
             retryTimeoutRef.current = null;
             if (streamRequestRef.current === requestId) {
@@ -240,9 +293,8 @@ export function Player() {
           setStreamRetries(attempt + 1);
           return;
         }
-        // After 6+ retries on mobile — native exhausted, surface the failure cleanly
-        pushDebug({ event: 'stream-exhausted', reason: 'all-native-retries-failed', playbackMode: 'native', trackId: videoId, desiredPlaying: desiredPlayingRef.current });
-        console.warn(`All ${attempt + 1} native stream attempts failed for ${videoId} on mobile. Not falling back to iframe.`);
+        pushDebug({ event: 'stream-exhausted', reason: 'all-native-retries-failed', playbackMode: 'native', trackId: videoId, desiredPlaying: desiredPlayingRef.current, isIOSAudioPlatform: true });
+        console.warn(`All ${attempt + 1} native stream attempts failed for ${videoId} on iOS. Not falling back to iframe.`);
         setIsStreamReady(true);
         setStreamVideoId('');
         setUseIframeFallback(false);
@@ -250,7 +302,7 @@ export function Player() {
         return;
       }
       console.warn(`All stream attempts failed for ${videoId}, falling back to iframe playback`);
-      pushDebug({ event: 'stream-fallback', reason: 'iframe-fallback', playbackMode: 'iframe-fallback', trackId: videoId });
+      pushDebug({ event: 'stream-fallback', reason: 'iframe-fallback', playbackMode: 'iframe-fallback', trackId: videoId, isIOSAudioPlatform: false });
       setUseIframeFallback(true);
       setIsStreamReady(true);
       setStreamVideoId(videoId);
@@ -260,7 +312,7 @@ export function Player() {
 
       if (attempt < MAX_STREAM_RETRIES - 1) {
         const delay = RETRY_BASE_DELAY * Math.pow(2, attempt);
-        pushDebug({ event: 'stream-retry', reason: 'fetch-error', playbackMode: 'native', trackId: videoId, desiredPlaying: desiredPlayingRef.current });
+        pushDebug({ event: 'stream-retry', reason: 'fetch-error', playbackMode: 'native', trackId: videoId, desiredPlaying: desiredPlayingRef.current, candidateIndex: streamCandidateIndexRef.current });
         retryTimeoutRef.current = window.setTimeout(() => {
           retryTimeoutRef.current = null;
           if (streamRequestRef.current === requestId) {
@@ -271,9 +323,9 @@ export function Player() {
         return;
       }
 
-      if (isMobileRef.current && attempt < 6) {
+      if (isIOS && attempt < 6) {
         const delay = RETRY_BASE_DELAY * Math.pow(1.5, attempt);
-        pushDebug({ event: 'stream-retry-extended', reason: 'fetch-error', playbackMode: 'native', trackId: videoId, desiredPlaying: desiredPlayingRef.current });
+        pushDebug({ event: 'stream-retry-extended', reason: 'fetch-error', playbackMode: 'native', trackId: videoId, desiredPlaying: desiredPlayingRef.current, isIOSAudioPlatform: true });
         retryTimeoutRef.current = window.setTimeout(() => {
           retryTimeoutRef.current = null;
           if (streamRequestRef.current === requestId) {
@@ -284,9 +336,9 @@ export function Player() {
         return;
       }
 
-      if (isMobileRef.current) {
-        pushDebug({ event: 'stream-exhausted', reason: 'all-native-retries-failed-fetch-error', playbackMode: 'native', trackId: videoId, desiredPlaying: desiredPlayingRef.current });
-        console.warn(`All ${attempt + 1} native stream attempts failed for ${videoId} on mobile (fetch error). Not falling back to iframe.`);
+      if (isIOS) {
+        pushDebug({ event: 'stream-exhausted', reason: 'all-native-retries-failed-fetch-error', playbackMode: 'native', trackId: videoId, desiredPlaying: desiredPlayingRef.current, isIOSAudioPlatform: true });
+        console.warn(`All ${attempt + 1} native stream attempts failed for ${videoId} on iOS (fetch error). Not falling back to iframe.`);
         setIsStreamReady(true);
         setStreamVideoId('');
         setUseIframeFallback(false);
@@ -295,7 +347,7 @@ export function Player() {
       }
 
       console.warn(`All stream attempts failed for ${videoId}, falling back to iframe playback`);
-      pushDebug({ event: 'stream-fallback', reason: 'iframe-fallback-fetch-error', playbackMode: 'iframe-fallback', trackId: videoId });
+      pushDebug({ event: 'stream-fallback', reason: 'iframe-fallback-fetch-error', playbackMode: 'iframe-fallback', trackId: videoId, isIOSAudioPlatform: false });
       setUseIframeFallback(true);
       setIsStreamReady(true);
       setStreamVideoId(videoId);
@@ -466,13 +518,16 @@ export function Player() {
         case 'playVideo':
           desiredPlayingRef.current = true;
           if (!audio || !audio.src) {
-            // No audio source — fall back to iframe (desktop only)
+            // No audio source — fall back to iframe (desktop only, never iOS)
             const vid = currentTrackIdRef.current;
-            if (vid && !useIframeFallback && !isMobileRef.current) {
+            if (vid && !useIframeFallback && !isIOS) {
               console.warn('No audio source available, falling back to iframe');
+              pushDebug({ event: 'iframe-fallback-triggered', reason: 'no-audio-src', playbackMode: 'iframe-fallback', trackId: vid, isIOSAudioPlatform: false });
               setUseIframeFallback(true);
               setIsStreamReady(true);
               setStreamVideoId(vid);
+            } else if (isIOS) {
+              pushDebug({ event: 'ios-no-audio-src-no-iframe', reason: 'no-audio-src-ios', playbackMode: 'native', trackId: vid, isIOSAudioPlatform: true });
             }
             return false;
           }
@@ -487,13 +542,16 @@ export function Player() {
             void syncVideoToAudio(true);
             return true;
           } catch (playErr) {
-            // audio.play() rejected (autoplay policy, CORS, etc.) — fall back to iframe (desktop only)
+            // audio.play() rejected (autoplay policy, CORS, etc.) — fall back to iframe (desktop only, never iOS)
             const vid = currentTrackIdRef.current;
             console.warn('audio.play() rejected, falling back to iframe:', playErr);
-            if (vid && !useIframeFallback && !isMobileRef.current) {
+            if (vid && !useIframeFallback && !isIOS) {
+              pushDebug({ event: 'iframe-fallback-triggered', reason: 'play-rejected', playbackMode: 'iframe-fallback', trackId: vid, isIOSAudioPlatform: false });
               setUseIframeFallback(true);
               setIsStreamReady(true);
               setStreamVideoId(vid);
+            } else if (isIOS) {
+              pushDebug({ event: 'ios-play-rejected-no-iframe', reason: 'play-rejected-ios', playbackMode: 'native', trackId: vid, isIOSAudioPlatform: true });
             }
             return false;
           }
@@ -639,11 +697,12 @@ export function Player() {
     const onError = () => {
       // Native audio failed to load
       const vid = currentTrackIdRef.current;
-      pushDebug({ event: 'audio-error', reason: 'native-audio-error', playbackMode: 'native', trackId: vid, audioPaused: audio.paused, audioReadyState: audio.readyState });
+      pushDebug({ event: 'audio-error', reason: 'native-audio-error', playbackMode: 'native', trackId: vid, audioPaused: audio.paused, audioReadyState: audio.readyState, errorCode: audio.error?.code, isIOSAudioPlatform: isIOS });
       if (isSwitchingTrackRef.current && desiredPlayingRef.current && vid) {
-        // On iOS — retry stream, never fall back to iframe
-        if (isMobileRef.current) {
-          console.warn(`Audio element error for ${vid} on mobile, re-fetching stream`);
+        // On iOS — retry stream, NEVER fall back to iframe
+        if (isIOS) {
+          console.warn(`Audio element error for ${vid} on iOS, re-fetching stream`);
+          pushDebug({ event: 'ios-audio-error-retry', reason: 're-fetch-stream', trackId: vid, isIOSAudioPlatform: true });
           // Retry the stream fetch with a new request ID
           const newRequestId = streamRequestRef.current + 1;
           streamRequestRef.current = newRequestId;
@@ -651,6 +710,7 @@ export function Player() {
           return;
         }
         console.warn(`Audio element error for ${vid}, falling back to iframe`);
+        pushDebug({ event: 'iframe-fallback-triggered', reason: 'audio-error-retry-exhausted', playbackMode: 'iframe-fallback', trackId: vid, isIOSAudioPlatform: false });
         setUseIframeFallback(true);
         setIsStreamReady(true);
         setStreamVideoId(vid);
@@ -658,23 +718,25 @@ export function Player() {
     };
     const onStalled = () => {
       // Audio stalled — try to recover
-      pushDebug({ event: 'audio-stalled', reason: 'native-audio-stalled', playbackMode: 'native', audioPaused: audio.paused, audioReadyState: audio.readyState });
+      pushDebug({ event: 'audio-stalled', reason: 'native-audio-stalled', playbackMode: 'native', audioPaused: audio.paused, audioReadyState: audio.readyState, isIOSAudioPlatform: isIOS });
       if (desiredPlayingRef.current) {
         const vid = currentTrackIdRef.current;
         if (vid) {
           window.setTimeout(() => {
             const a = audioRef.current;
             if (desiredPlayingRef.current && a?.paused && (a?.readyState ?? 0) < 3) {
-              pushDebug({ event: 'audio-stalled-recovery', reason: 'still-stalled', trackId: vid, audioReadyState: a?.readyState ?? 0 });
-              // On iOS — retry stream with a fresh candidate
-              if (isMobileRef.current) {
-                console.warn(`Audio still stalled for ${vid} on mobile, re-fetching stream`);
+              pushDebug({ event: 'audio-stalled-recovery', reason: 'still-stalled', trackId: vid, audioReadyState: a?.readyState ?? 0, isIOSAudioPlatform: isIOS });
+              // On iOS — retry stream, NEVER fall back to iframe
+              if (isIOS) {
+                console.warn(`Audio still stalled for ${vid} on iOS, re-fetching stream`);
+                pushDebug({ event: 'ios-stalled-retry', reason: 're-fetch-stream', trackId: vid, isIOSAudioPlatform: true });
                 const newRequestId = streamRequestRef.current + 1;
                 streamRequestRef.current = newRequestId;
                 tryFetchStream(vid, newRequestId, 3);
                 return;
               }
               console.warn(`Audio stalled for ${vid}, falling back to iframe`);
+              pushDebug({ event: 'iframe-fallback-triggered', reason: 'stalled-recovery-exhausted', playbackMode: 'iframe-fallback', trackId: vid, isIOSAudioPlatform: false });
               setUseIframeFallback(true);
               setIsStreamReady(true);
               setStreamVideoId(vid);
@@ -918,7 +980,7 @@ export function Player() {
   useEffect(() => {
     const handleVisibility = () => {
       const vis = document.visibilityState;
-      pushDebug({ event: 'visibilitychange', reason: vis === 'visible' ? 'foreground' : 'background', visibilityState: vis, desiredPlaying: desiredPlayingRef.current, audioPaused: audioRef.current?.paused, useIframeFallback, playbackMode: useIframeFallback ? 'iframe-fallback' : 'native' });
+      pushDebug({ event: 'visibilitychange', reason: vis === 'visible' ? 'foreground' : 'background', visibilityState: vis, desiredPlaying: desiredPlayingRef.current, audioPaused: audioRef.current?.paused, useIframeFallback, playbackMode: useIframeFallback ? 'iframe-fallback' : 'native', audioReadyState: audioRef.current?.readyState, audioNetworkState: audioRef.current?.networkState, isIOSAudioPlatform: isIOS, innerWidth: window.innerWidth });
 
       if (vis === 'visible') {
         // Coming back to foreground
@@ -936,19 +998,36 @@ export function Player() {
         }
 
         if (desiredPlayingRef.current && audioRef.current?.paused && audioRef.current?.src) {
-          pushDebug({ event: 'visibilitychange-resume', reason: 'auto-resume-from-background' });
-          void safePlayerCall('playVideo');
+          // iOS WebKit bug #295518: Audio element can become broken after background.
+          // If readyState is 0 (HAVE_NOTHING) on resume, recreate the audio element
+          // by resetting its src to force a fresh load.
+          if (isIOS && audioRef.current.readyState === 0 && streamCandidatesRef.current.length > 0) {
+            pushDebug({ event: 'ios-audio-recreate', reason: 'webkit-bug-workaround-readyState-0', isIOSAudioPlatform: true, candidateIndex: streamCandidateIndexRef.current, candidateCount: streamCandidatesRef.current.length });
+            // Force reload the current candidate URL
+            const currentUrl = streamCandidatesRef.current[streamCandidateIndexRef.current] || audioRef.current.src;
+            audioRef.current.src = '';
+            audioRef.current.removeAttribute('src');
+            audioRef.current.load(); // explicit load to reset element state
+            audioRef.current.src = currentUrl;
+            audioRef.current.load();
+            // Play will be attempted through safePlayerCall below, but also try directly
+            audioRef.current.play().catch(() => {}).then(() => {
+              pushDebug({ event: 'ios-audio-recreate-play', reason: 'play-after-recreate', audioPaused: audioRef.current?.paused, audioReadyState: audioRef.current?.readyState });
+            });
+          } else {
+            pushDebug({ event: 'visibilitychange-resume', reason: 'auto-resume-from-background' });
+            void safePlayerCall('playVideo');
+          }
           return;
         }
         void syncVideoToAudio(true);
       } else {
         // Going to background
         isBackgroundingRef.current = true;
-        pushDebug({ event: 'visibilitychange-background', reason: 'going-to-background', desiredPlaying: desiredPlayingRef.current, playbackMode: useIframeFallback ? 'iframe-fallback' : 'native' });
+        pushDebug({ event: 'visibilitychange-background', reason: 'going-to-background', desiredPlaying: desiredPlayingRef.current, playbackMode: useIframeFallback ? 'iframe-fallback' : 'native', isIOSAudioPlatform: isIOS });
 
         // Keep audio alive on iOS when going to background
         if (desiredPlayingRef.current && audioRef.current?.src) {
-          // Keep the real audio playing — it survives background on iOS
           audioRef.current.play().catch(() => {});
         }
 
@@ -1055,14 +1134,14 @@ export function Player() {
   const handlePlayerReady = (e: any) => {
       playerRef.current = e.target;
 
-      // On iOS, iframe is ALWAYS visual-only — mute regardless
-      if (isMobileRef.current) {
+      // On iOS, iframe is ALWAYS visual-only — mute regardless of viewport
+      if (isIOS) {
         try { e.target?.mute?.(); e.target?.setVolume?.(0); } catch(_) {}
-        pushDebug({ event: 'player-ready', reason: 'visual-only-muted', playbackMode: 'native', trackId: currentTrack?.videoId });
+        pushDebug({ event: 'player-ready', reason: 'ios-visual-only-muted', playbackMode: 'native', trackId: currentTrack?.videoId, isIOSAudioPlatform: true });
       } else if (useIframeFallback) {
         // Iframe fallback mode — don't mute, let it play audio (desktop only)
         try { e.target?.unMute?.(); e.target?.setVolume?.(100); } catch(_) {}
-        pushDebug({ event: 'player-ready', reason: 'iframe-fallback-unmuted', playbackMode: 'iframe-fallback', trackId: currentTrack?.videoId });
+        pushDebug({ event: 'player-ready', reason: 'iframe-fallback-unmuted', playbackMode: 'iframe-fallback', trackId: currentTrack?.videoId, isIOSAudioPlatform: isIOS });
         // If we want to play and the iframe is now ready, start playback
         if (desiredPlayingRef.current) {
           e.target?.playVideo?.();
